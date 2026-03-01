@@ -2111,7 +2111,13 @@ void connectToWiFi() {
     }
 
     // Setup authenticated web server
+    // esp32 Arduino core 3.x changed collectHeaders to require an array + count
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    const char* collectHeaderKeys[] = {"Cookie"};
+    server.collectHeaders(collectHeaderKeys, 1);
+#else
     server.collectHeaders("Cookie");
+#endif
     setupWebServerRunMode();
     server.begin();
     serialPrintln(F("Web server started"));
@@ -2172,7 +2178,17 @@ void setup() {
   pinMode(pinSensorOut, INPUT);
 
   // Start watchdog timer
+  // esp32 Arduino core 3.x changed esp_task_wdt_init to take a config struct
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  esp_task_wdt_config_t wdtConfig = {
+    .timeout_ms   = WDT_TIMEOUT_SECONDS * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic  = true
+  };
+  esp_task_wdt_init(&wdtConfig);
+#else
   esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true);
+#endif
   esp_task_wdt_add(NULL);
   serialPrintln(F("Watchdog timer started (8s timeout)"));
 

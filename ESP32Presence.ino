@@ -1,19 +1,30 @@
 /*
  * ===============================================
- * ESP32 LD2410C Presence Detection System
- * Version: 1.7.1
- * Date: 2026-02-15
+ * ESP32 Presence Detection System
+ * Version: 2.0.0
+ * Date: 2026-03-01
  * ===============================================
- * 
+ *
  * CHANGELOG:
+ * v2.0.0 - Multi-board support and modular design
+ *   - Added board-specific pin definitions for ESP32 DevKit,
+ *     ESP32-S2, ESP32-S3, ESP32-C3, and WEMOS LOLIN D32
+ *   - Added ENABLE_PIR feature flag for PIR sensor support
+ *   - Added ENABLE_MMWAVE feature flag for LD2410 UART protocol
+ *   - Added LIGHT_TIMEOUT_MS, LIGHT_ON_LEVEL, LIGHT_OFF_LEVEL constants
+ *   - Added direct LIGHT_PIN relay/LED control (fallback when ISY not set)
+ *   - Fixed WiFiClientSecure memory leak in sendISYCommand()
+ *   - Renamed PIN_SENSOR_OUT->RADAR_OUT_PIN, PIN_RX2->RADAR_RX_PIN,
+ *     PIN_TX2->RADAR_TX_PIN; added PIR_PIN, LIGHT_PIN, RADAR_SERIAL
+ *
  * v1.7.1 - Fixed HTTPS compilation error
  *   - Added WiFiClientSecure for HTTPS support
  *   - Fixed setInsecure() compilation error
- * 
+ *
  * v1.7 - EISY/Polisy compatibility
  *   - Added explicit support for UD EISY
  *   - Works with ISY994, ISY994i, EISY, and Polisy
- * 
+ *
  * ===============================================
  * COMPATIBLE CONTROLLERS:
  * ===============================================
@@ -21,23 +32,31 @@
  * - Universal Devices Polisy
  * - Universal Devices ISY994i
  * - Universal Devices ISY994 (all versions)
- * 
+ *
  * ===============================================
  * HARDWARE CONNECTIONS:
  * ===============================================
  * LD2410C Sensor:
  *   VCC -> 5V on ESP32
  *   GND -> GND on ESP32
- *   TX (from sensor) -> GPIO18 (ESP32 RX for UART2)
- *   RX (from sensor) -> GPIO17 (ESP32 TX for UART2)
- *   OUT -> GPIO4 (digital presence detection)
- * 
- * Built-in RGB LED:
- *   WS2812 LED on GPIO16 (built-in)
- * 
+ *   TX (from sensor) -> RADAR_RX_PIN (ESP32 receives)
+ *   RX (from sensor) -> RADAR_TX_PIN (ESP32 transmits)
+ *   OUT -> RADAR_OUT_PIN (digital presence detection)
+ *
+ * PIR Sensor (optional, requires ENABLE_PIR):
+ *   VCC -> 3.3V or 5V
+ *   GND -> GND
+ *   OUT -> PIR_PIN
+ *
+ * Light / Relay (optional, used when ISY not configured):
+ *   Signal -> LIGHT_PIN
+ *
+ * Built-in RGB LED / WS2812:
+ *   See board-specific PIN_RGB_LED below
+ *
  * Reset Button:
- *   BOOT button on GPIO0 - Hold 3 seconds for factory reset
- * 
+ *   BOOT button on PIN_RESET - Hold 3 seconds for factory reset
+ *
  * ===============================================
  */
 
@@ -53,16 +72,88 @@
 #include <Adafruit_NeoPixel.h>
 
 // ===============================================
-// PIN DEFINITIONS
+// FEATURE FLAGS
+// Uncomment the defines below to enable optional features.
 // ===============================================
-#define PIN_RGB_LED    16
-#define NUM_PIXELS     1
 
-#define PIN_SENSOR_OUT 4
-#define PIN_RESET      0
+// Uncomment to enable PIR motion sensor (connect sensor OUT to PIR_PIN)
+// #define ENABLE_PIR
 
-#define PIN_RX2        18
-#define PIN_TX2        17
+// Uncomment to enable LD2410 mmWave radar UART protocol
+// Requires the "ld2410" library by ncmreynolds (install via Library Manager)
+// #define ENABLE_MMWAVE
+
+// ===============================================
+// BOARD-SPECIFIC PIN DEFINITIONS
+// To add a new board, insert a new #elif block below.
+// ===============================================
+
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+  // ESP32-S3 DevKitC-1
+  #define BOARD_NAME      "ESP32-S3"
+  #define PIN_RGB_LED     48   // Built-in WS2812 on ESP32-S3-DevKitC-1
+  #define NUM_PIXELS      1
+  #define PIN_RESET       0
+  #define PIR_PIN         6
+  #define RADAR_OUT_PIN   5
+  #define RADAR_RX_PIN    18
+  #define RADAR_TX_PIN    17
+  #define LIGHT_PIN       10
+  #define RADAR_SERIAL    Serial2
+
+#elif defined(CONFIG_IDF_TARGET_ESP32C3)
+  // ESP32-C3 DevKitM-1
+  #define BOARD_NAME      "ESP32-C3"
+  #define PIN_RGB_LED     8    // Built-in WS2812 on ESP32-C3-DevKitM-1
+  #define NUM_PIXELS      1
+  #define PIN_RESET       9
+  #define PIR_PIN         2
+  #define RADAR_OUT_PIN   4
+  #define RADAR_RX_PIN    6
+  #define RADAR_TX_PIN    7
+  #define LIGHT_PIN       10
+  #define RADAR_SERIAL    Serial1
+
+#elif defined(CONFIG_IDF_TARGET_ESP32S2)
+  // ESP32-S2 DevKitM-1
+  #define BOARD_NAME      "ESP32-S2"
+  #define PIN_RGB_LED     18   // Built-in WS2812 on ESP32-S2-DevKitM-1 (some models)
+  #define NUM_PIXELS      1
+  #define PIN_RESET       0
+  #define PIR_PIN         6
+  #define RADAR_OUT_PIN   5
+  #define RADAR_RX_PIN    37
+  #define RADAR_TX_PIN    38
+  #define LIGHT_PIN       10
+  #define RADAR_SERIAL    Serial1
+
+#elif defined(ARDUINO_LOLIN_D32)
+  // WEMOS LOLIN D32
+  #define BOARD_NAME      "WEMOS LOLIN D32"
+  #define PIN_RGB_LED     5    // Built-in LED (active-low; attach external NeoPixel for RGB)
+  #define NUM_PIXELS      1
+  #define PIN_RESET       0
+  #define PIR_PIN         27
+  #define RADAR_OUT_PIN   4
+  #define RADAR_RX_PIN    16
+  #define RADAR_TX_PIN    17
+  #define LIGHT_PIN       32
+  #define RADAR_SERIAL    Serial2
+
+#else
+  // Generic ESP32 DevKit (default, e.g. ESP32-DevKitC-32E)
+  #define BOARD_NAME      "ESP32 DevKit"
+  #define PIN_RGB_LED     16   // WS2812 on GPIO16 (ESP32-DevKitC-32E built-in)
+  #define NUM_PIXELS      1
+  #define PIN_RESET       0
+  #define PIR_PIN         23
+  #define RADAR_OUT_PIN   4
+  #define RADAR_RX_PIN    18
+  #define RADAR_TX_PIN    17
+  #define LIGHT_PIN       26
+  #define RADAR_SERIAL    Serial2
+
+#endif
 
 // ===============================================
 // GLOBAL CONSTANTS
@@ -75,6 +166,11 @@
 #define RESET_HOLD_TIME       3000
 
 #define DNS_PORT 53
+
+// Light control defaults (configurable via WiFi portal at runtime)
+#define LIGHT_TIMEOUT_MS  300000UL  // 5 minutes of no presence before light turns off
+#define LIGHT_ON_LEVEL    HIGH      // Output level when light is ON  (HIGH for active-HIGH relay)
+#define LIGHT_OFF_LEVEL   LOW       // Output level when light is OFF (LOW  for active-HIGH relay)
 
 // ===============================================
 // GLOBAL VARIABLES
@@ -95,7 +191,7 @@ String isyDeviceID = "";
 bool isyConfigured = false;
 bool useHTTPS = false;
 
-int noDetectionTimeout = 300;
+int noDetectionTimeout = LIGHT_TIMEOUT_MS / 1000;
 
 bool presenceDetected = false;
 bool isMoving = false;
@@ -146,29 +242,48 @@ void setup() {
   
   if (Serial) {
     Serial.println("\n\n===============================================");
-    Serial.println("ESP32 LD2410C Presence Detection System v1.7.1");
-    Serial.println("For ESP32-DevKitC-32E with built-in RGB LED");
+    Serial.println("ESP32 Presence Detection System v2.0.0");
+    Serial.print("Board: ");
+    Serial.println(BOARD_NAME);
     Serial.println("Compatible with EISY, Polisy, ISY994");
+    Serial.println("===============================================");
+#ifdef ENABLE_PIR
+    Serial.println("Feature: PIR sensor ENABLED (GPIO " + String(PIR_PIN) + ")");
+#endif
+#ifdef ENABLE_MMWAVE
+    Serial.println("Feature: mmWave UART ENABLED (RX=" + String(RADAR_RX_PIN) + ", TX=" + String(RADAR_TX_PIN) + ")");
+#endif
     Serial.println("===============================================\n");
   }
   
   strip.begin();
   strip.show();
   strip.setBrightness(50);
-  serialPrintln("Built-in RGB LED initialized on GPIO16");
+  serialPrintln("Built-in RGB LED initialized on GPIO" + String(PIN_RGB_LED));
   
   pinMode(PIN_RESET, INPUT_PULLUP);
   setRGB(0, 0, 0);
   
-  Serial2.begin(BAUD_RATE_SENSOR, SERIAL_8N1, PIN_RX2, PIN_TX2);
+  // Initialize relay / direct light output pin
+  pinMode(LIGHT_PIN, OUTPUT);
+  digitalWrite(LIGHT_PIN, LIGHT_OFF_LEVEL);
+
+#ifdef ENABLE_MMWAVE
+  RADAR_SERIAL.begin(BAUD_RATE_SENSOR, SERIAL_8N1, RADAR_RX_PIN, RADAR_TX_PIN);
   serialPrint("Sensor UART initialized on RX=GPIO");
   if (Serial) {
-    Serial.print(PIN_RX2);
+    Serial.print(RADAR_RX_PIN);
     Serial.print(", TX=GPIO");
-    Serial.println(PIN_TX2);
+    Serial.println(RADAR_TX_PIN);
   }
+#endif
   
-  pinMode(PIN_SENSOR_OUT, INPUT);
+  pinMode(RADAR_OUT_PIN, INPUT);
+  
+#ifdef ENABLE_PIR
+  pinMode(PIR_PIN, INPUT);
+  serialPrintln("PIR sensor initialized on GPIO" + String(PIR_PIN));
+#endif
   
   loadConfiguration();
   
@@ -202,10 +317,7 @@ void loop() {
   
   readSensorData();
   updateLED();
-  
-  if (isyConfigured) {
-    controlLight();
-  }
+  controlLight();
   
   delay(100);
 }
@@ -228,7 +340,7 @@ void loadConfiguration() {
   isyDeviceID = preferences.getString("isy_device", "");
   useHTTPS = preferences.getBool("use_https", false);
   
-  noDetectionTimeout = preferences.getInt("timeout", 300);
+  noDetectionTimeout = preferences.getInt("timeout", LIGHT_TIMEOUT_MS / 1000);
   
   preferences.end();
   
@@ -294,7 +406,7 @@ void clearConfiguration() {
   isyPassword = "";
   isyDeviceID = "";
   useHTTPS = false;
-  noDetectionTimeout = 300;
+  noDetectionTimeout = LIGHT_TIMEOUT_MS / 1000;
   wifiConfigured = false;
   isyConfigured = false;
   
@@ -512,7 +624,7 @@ void handleRoot() {
   html += "<button type='submit'>Save Configuration</button>";
   html += "</form>";
   
-  html += "<div class='version'>v1.7.1 | EISY/Polisy/ISY Compatible | GPIO16 RGB</div>";
+  html += "<div class='version'>v2.0.0 | " + String(BOARD_NAME) + " | EISY/Polisy/ISY Compatible</div>";
   html += "</div></body></html>";
   
   server.send(200, "text/html", html);
@@ -529,7 +641,7 @@ void handleSave() {
   
   String timeoutStr = server.arg("timeout");
   noDetectionTimeout = timeoutStr.toInt();
-  if (noDetectionTimeout < 60) noDetectionTimeout = 300;
+  if (noDetectionTimeout < 60) noDetectionTimeout = LIGHT_TIMEOUT_MS / 1000;
   
   wifiSSID.trim();
   wifiPassword.trim();
@@ -578,9 +690,16 @@ void handleSave() {
 // ===============================================
 
 void readSensorData() {
-  int outPinState = digitalRead(PIN_SENSOR_OUT);
-  
-  if (outPinState == HIGH) {
+  bool radarDetected = (digitalRead(RADAR_OUT_PIN) == HIGH);
+
+#ifdef ENABLE_PIR
+  bool pirDetected = (digitalRead(PIR_PIN) == HIGH);
+  bool anyDetected = radarDetected || pirDetected;
+#else
+  bool anyDetected = radarDetected;
+#endif
+
+  if (anyDetected) {
     presenceDetected = true;
     lastDetectionTime = millis();
     sensorError = false;
@@ -597,7 +716,7 @@ void readSensorData() {
     presenceDetected = false;
     isMoving = false;
     
-    if (lightOn && (millis() - lastDetectionTime > (noDetectionTimeout * 1000))) {
+    if (lightOn && (millis() - lastDetectionTime > (unsigned long)(noDetectionTimeout * 1000))) {
       serialPrint("No detection for ");
       if (Serial) {
         Serial.print(noDetectionTimeout / 60);
@@ -687,11 +806,7 @@ void setRGB(int r, int g, int b) {
 // ===============================================
 
 void controlLight() {
-  if (!isyConfigured) {
-    return;
-  }
-  
-  bool shouldBeOn = presenceDetected || (millis() - lastDetectionTime < (noDetectionTimeout * 1000));
+  bool shouldBeOn = presenceDetected || (millis() - lastDetectionTime < (unsigned long)(noDetectionTimeout * 1000));
   
   if (shouldBeOn != lightOn) {
     if (shouldBeOn) {
@@ -705,13 +820,21 @@ void controlLight() {
 void turnLightOn() {
   serialPrintln("Turning light ON...");
   
-  String deviceID = isyDeviceID;
-  deviceID.replace(" ", "%20");
-  
-  String protocol = useHTTPS ? "https" : "http";
-  String url = protocol + "://" + isyIP + "/rest/nodes/" + deviceID + "/cmd/DON";
-  
-  if (sendISYCommand(url)) {
+  bool success = false;
+
+  if (isyConfigured) {
+    String deviceID = isyDeviceID;
+    deviceID.replace(" ", "%20");
+    String protocol = useHTTPS ? "https" : "http";
+    String url = protocol + "://" + isyIP + "/rest/nodes/" + deviceID + "/cmd/DON";
+    success = sendISYCommand(url);
+  } else {
+    // Direct relay / LED control via LIGHT_PIN
+    digitalWrite(LIGHT_PIN, LIGHT_ON_LEVEL);
+    success = true;
+  }
+
+  if (success) {
     lightOn = true;
     serialPrintln("Light turned ON successfully");
   } else {
@@ -722,13 +845,21 @@ void turnLightOn() {
 void turnLightOff() {
   serialPrintln("Turning light OFF...");
   
-  String deviceID = isyDeviceID;
-  deviceID.replace(" ", "%20");
-  
-  String protocol = useHTTPS ? "https" : "http";
-  String url = protocol + "://" + isyIP + "/rest/nodes/" + deviceID + "/cmd/DOF";
-  
-  if (sendISYCommand(url)) {
+  bool success = false;
+
+  if (isyConfigured) {
+    String deviceID = isyDeviceID;
+    deviceID.replace(" ", "%20");
+    String protocol = useHTTPS ? "https" : "http";
+    String url = protocol + "://" + isyIP + "/rest/nodes/" + deviceID + "/cmd/DOF";
+    success = sendISYCommand(url);
+  } else {
+    // Direct relay / LED control via LIGHT_PIN
+    digitalWrite(LIGHT_PIN, LIGHT_OFF_LEVEL);
+    success = true;
+  }
+
+  if (success) {
     lightOn = false;
     serialPrintln("Light turned OFF successfully");
   } else {
@@ -743,19 +874,12 @@ bool sendISYCommand(String url) {
   }
   
   HTTPClient http;
+  WiFiClientSecure secureClient;
   
   if (useHTTPS) {
-    // Use WiFiClientSecure for HTTPS
-    WiFiClientSecure *client = new WiFiClientSecure;
-    if (client) {
-      client->setInsecure();  // Skip certificate validation for self-signed certs
-      http.begin(*client, url);
-    } else {
-      serialPrintln("Failed to create secure client");
-      return false;
-    }
+    secureClient.setInsecure();  // Skip certificate validation for self-signed certs
+    http.begin(secureClient, url);
   } else {
-    // Use regular HTTP
     http.begin(url);
   }
   

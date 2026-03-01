@@ -7,19 +7,19 @@
  *
  * DESCRIPTION:
  *   ESP32-based occupancy detection using the LD2410C mmWave radar
- *   sensor. Integrates with Universal Devices EISY/ISY/Polisy for
- *   automatic Insteon light control. Features a web-based configuration
+ *   sensor. Integrates with multiple home automation platforms for
+ *   automatic light control. Features a web-based configuration
  *   interface with admin password protection and session management.
  *
  * SUPPORTED BOARDS:
  *   - ESP32-DevKitC-32E (auto-detected)
  *   - ESP32-S3 Dev Board (auto-detected)
  *
- * COMPATIBLE CONTROLLERS:
- *   - Universal Devices EISY (HTTPS)
- *   - Universal Devices Polisy (HTTP)
- *   - Universal Devices ISY994i (HTTP)
- *   - Universal Devices ISY994 (HTTP)
+ * INTEGRATIONS:
+ *   - Universal Devices EISY / Polisy / ISY994 (via REST API)
+ *   - Insteon Hub 2 Model 2245 (direct HTTP API)
+ *   - Home Assistant (REST API)
+ *   - Apple HomeKit (native, compile-time, requires arduino-homekit-esp32)
  *
  * LICENSE: MIT
  * ================================================================
@@ -43,12 +43,18 @@
 #include <mbedtls/md.h>
 #include <esp_task_wdt.h>
 
-#define FIRMWARE_VERSION  "2.0.0"
+#define FIRMWARE_VERSION  "2.1.0"
 #define NUM_PIXELS        1
 #define DNS_PORT          53
 #define BAUD_RATE_DEBUG   115200
 #define BAUD_RATE_SENSOR  256000
 #define PIN_RESET         0
+
+// Uncomment to enable native HomeKit support (requires arduino-homekit-esp32 library)
+// #define ENABLE_HOMEKIT
+
+#define DEFAULT_INSTEON_HUB_PORT  "25105"
+#define DEFAULT_HA_PORT           "8123"
 
 // Timing constants
 #define HEARTBEAT_INTERVAL      1000
@@ -114,6 +120,28 @@ String isyPassword = "";
 String isyDeviceID = "";
 bool   useHTTPS    = false;
 bool   isyConfigured = false;
+
+// Integration selector: "none" | "isy" | "insteon_hub" | "ha" | "homekit"
+String integrationMode       = "none";
+bool   integrationConfigured = false;
+
+// Insteon Hub 2 (Model 2245) — direct HTTP API
+String insteonHubIP   = "";
+String insteonHubPort = DEFAULT_INSTEON_HUB_PORT;
+String insteonHubUser = "";
+String insteonHubPass = "";
+String insteonHubAddr = "";  // e.g. "1A.2B.3C"
+
+// Home Assistant — REST API
+String haIP       = "";
+String haPort     = DEFAULT_HA_PORT;
+bool   haHTTPS    = false;
+String haToken    = "";      // Long-lived access token
+String haEntityId = "";      // e.g. "light.living_room"
+
+#ifdef ENABLE_HOMEKIT
+String homekitCode = "11122333";  // 8-digit pairing code (no hyphens)
+#endif
 
 // Admin / security
 String adminPasswordHash = "";
@@ -406,19 +434,42 @@ void loadConfiguration() {
   ledBrightness = preferences.getInt("led_bright", 50);
   debugLevel    = preferences.getInt("debug_lvl",  1);
 
+  integrationMode = preferences.getString("int_mode",  "none");
+  insteonHubIP    = preferences.getString("hub_ip",    "");
+  insteonHubPort  = preferences.getString("hub_port",  DEFAULT_INSTEON_HUB_PORT);
+  insteonHubUser  = preferences.getString("hub_user",  "");
+  insteonHubPass  = preferences.getString("hub_pass",  "");
+  insteonHubAddr  = preferences.getString("hub_addr",  "");
+  haIP            = preferences.getString("ha_ip",     "");
+  haPort          = preferences.getString("ha_port",   DEFAULT_HA_PORT);
+  haHTTPS         = preferences.getBool("ha_https",    false);
+  haToken         = preferences.getString("ha_token",  "");
+  haEntityId      = preferences.getString("ha_entity", "");
+#ifdef ENABLE_HOMEKIT
+  homekitCode     = preferences.getString("hk_code",   "11122333");
+#endif
+
   preferences.end();
 
   isyConfigured = (isyIP != "" && isyUsername != "" && isyPassword != "" && isyDeviceID != "");
+
+  // Migration: if int_mode not saved but isy_ip is set, default to "isy"
+  if (integrationMode == "none" && isyIP != "") integrationMode = "isy";
+
+  integrationConfigured = false;
+  if (integrationMode == "isy")         integrationConfigured = isyConfigured;
+  if (integrationMode == "insteon_hub") integrationConfigured = (insteonHubIP != "" && insteonHubUser != "" && insteonHubAddr != "");
+  if (integrationMode == "ha")         integrationConfigured = (haIP != "" && haToken != "" && haEntityId != "");
+  if (integrationMode == "homekit")    integrationConfigured = true;
 
   if (debugLevel > 0) {
     Serial.println(F("Configuration loaded:"));
     Serial.print(F("  Board: ")); Serial.println(BOARD_TYPE);
     Serial.print(F("  WiFi SSID: ")); Serial.println(wifiSSID == "" ? "(not set)" : wifiSSID);
-    Serial.print(F("  EISY/ISY IP: ")); Serial.println(isyIP == "" ? "(not set - OPTIONAL)" : isyIP);
-    Serial.print(F("  Use HTTPS: ")); Serial.println(useHTTPS ? "Yes" : "No");
+    Serial.print(F("  Integration: ")); Serial.println(integrationMode);
+    Serial.print(F("  Light control: ")); Serial.println(integrationConfigured ? "ENABLED" : "DISABLED");
     Serial.print(F("  Timeout: ")); Serial.print(noDetectionTimeout); Serial.println(F("s"));
     Serial.print(F("  Admin password: ")); Serial.println(adminPasswordSet ? "Set" : "NOT SET");
-    Serial.print(F("  Light control: ")); Serial.println(isyConfigured ? "ENABLED" : "DISABLED");
     Serial.print(F("  Custom pins: ")); Serial.println(useCustomPins ? "Yes" : "No");
   }
 }
@@ -447,11 +498,31 @@ void saveConfiguration() {
   preferences.putInt("pin_led",       pinRgbLed);
   preferences.putInt("led_bright",    ledBrightness);
   preferences.putInt("debug_lvl",     debugLevel);
+  preferences.putString("int_mode",   integrationMode);
+  preferences.putString("hub_ip",     insteonHubIP);
+  preferences.putString("hub_port",   insteonHubPort);
+  preferences.putString("hub_user",   insteonHubUser);
+  preferences.putString("hub_pass",   insteonHubPass);
+  preferences.putString("hub_addr",   insteonHubAddr);
+  preferences.putString("ha_ip",      haIP);
+  preferences.putString("ha_port",    haPort);
+  preferences.putBool("ha_https",     haHTTPS);
+  preferences.putString("ha_token",   haToken);
+  preferences.putString("ha_entity",  haEntityId);
+#ifdef ENABLE_HOMEKIT
+  preferences.putString("hk_code",    homekitCode);
+#endif
 
   preferences.end();
 
   isyConfigured    = (isyIP != "" && isyUsername != "" && isyPassword != "" && isyDeviceID != "");
   adminPasswordSet = (adminPasswordHash.length() == 64);
+
+  integrationConfigured = false;
+  if (integrationMode == "isy")         integrationConfigured = isyConfigured;
+  if (integrationMode == "insteon_hub") integrationConfigured = (insteonHubIP != "" && insteonHubUser != "" && insteonHubAddr != "");
+  if (integrationMode == "ha")         integrationConfigured = (haIP != "" && haToken != "" && haEntityId != "");
+  if (integrationMode == "homekit")    integrationConfigured = true;
 
   serialPrintln(F("Configuration saved!"));
 }
@@ -476,6 +547,16 @@ void clearConfiguration() {
   pinSensorTx  = SENSOR_TX_PIN;
   pinSensorRx  = SENSOR_RX_PIN;
   pinRgbLed    = RGB_LED_PIN;
+  integrationMode = "none";
+  integrationConfigured = false;
+  insteonHubIP = insteonHubUser = insteonHubPass = insteonHubAddr = "";
+  insteonHubPort = DEFAULT_INSTEON_HUB_PORT;
+  haIP = haToken = haEntityId = "";
+  haPort = DEFAULT_HA_PORT;
+  haHTTPS = false;
+#ifdef ENABLE_HOMEKIT
+  homekitCode = "11122333";
+#endif
 
   serialPrintln(F("Configuration cleared!"));
 }
@@ -500,7 +581,16 @@ String buildConfigJson() {
   json += "  \"pin_sensor_out\": " + String(pinSensorOut) + ",\n";
   json += "  \"pin_sensor_tx\": " + String(pinSensorTx) + ",\n";
   json += "  \"pin_sensor_rx\": " + String(pinSensorRx) + ",\n";
-  json += "  \"pin_rgb_led\": " + String(pinRgbLed) + "\n";
+  json += "  \"pin_rgb_led\": " + String(pinRgbLed) + ",\n";
+  json += "  \"integration_mode\": \"" + integrationMode + "\",\n";
+  json += "  \"hub_ip\": \"" + insteonHubIP + "\",\n";
+  json += "  \"hub_port\": \"" + insteonHubPort + "\",\n";
+  json += "  \"hub_user\": \"" + insteonHubUser + "\",\n";
+  json += "  \"hub_addr\": \"" + insteonHubAddr + "\",\n";
+  json += "  \"ha_ip\": \"" + haIP + "\",\n";
+  json += "  \"ha_port\": \"" + haPort + "\",\n";
+  json += "  \"ha_https\": " + String(haHTTPS ? "true" : "false") + ",\n";
+  json += "  \"ha_entity\": \"" + haEntityId + "\"\n";
   json += "}";
   return json;
 }
@@ -685,20 +775,106 @@ void turnLightOff() {
 }
 
 /*
- * controlLight - Decide whether to turn light on or off based on presence.
+ * insteonAddrToHex - Convert "1A.2B.3C" to "1A2B3C" for Insteon Hub API.
+ * @param addr Insteon address with dot separators
+ * @return Hex string without separators, uppercase
+ */
+String insteonAddrToHex(const String& addr) {
+  String h = addr;
+  h.replace(".", "");
+  h.toUpperCase();
+  return h;
+}
+
+/*
+ * sendInsteonHubCommand - Send a direct ON/OFF command to Insteon Hub 2 (Model 2245).
+ * @param on true to turn on, false to turn off
+ * @return true if HTTP 200 received
+ */
+bool sendInsteonHubCommand(bool on) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String hex = insteonAddrToHex(insteonHubAddr);
+  String cmd = on ? "11" : "13";
+
+  HTTPClient http;
+  // Step 1: clear hub receive buffer
+  String clearUrl = "http://" + insteonHubIP + ":" + insteonHubPort + "/1?XB=M=1";
+  http.begin(clearUrl);
+  http.setAuthorization(insteonHubUser.c_str(), insteonHubPass.c_str());
+  http.GET();
+  http.end();
+
+  // Step 2: send command
+  String cmdUrl = "http://" + insteonHubIP + ":" + insteonHubPort +
+                  "/3?0262" + hex + "0F" + cmd + "=I=3";
+  http.begin(cmdUrl);
+  http.setAuthorization(insteonHubUser.c_str(), insteonHubPass.c_str());
+  int code = http.GET();
+  http.end();
+  verbosePrint("Insteon Hub response: " + String(code));
+  return (code == 200);
+}
+
+/*
+ * sendHACommand - Send turn_on / turn_off to the Home Assistant REST API.
+ * @param on true to turn on, false to turn off
+ * @return true if HTTP 200 or 201 received
+ */
+bool sendHACommand(bool on) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String service = on ? "turn_on" : "turn_off";
+  String url = String(haHTTPS ? "https" : "http") + "://" + haIP + ":" + haPort +
+               "/api/services/homeassistant/" + service;
+  String body = "{\"entity_id\":\"" + haEntityId + "\"}";
+  bool success = false;
+
+  HTTPClient http;
+  if (haHTTPS) {
+    WiFiClientSecure* client = new WiFiClientSecure;
+    client->setInsecure();
+    http.begin(*client, url);
+    http.addHeader("Authorization", "Bearer " + haToken);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST(body);
+    success = (code == 200 || code == 201);
+    verbosePrint("HA HTTPS response: " + String(code));
+    http.end();
+    delete client;
+  } else {
+    http.begin(url);
+    http.addHeader("Authorization", "Bearer " + haToken);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST(body);
+    success = (code == 200 || code == 201);
+    verbosePrint("HA HTTP response: " + String(code));
+    http.end();
+  }
+  return success;
+}
+
+/*
+ * controlLight - Decide whether to turn the light on or off based on presence.
+ * Dispatches to the configured integration (ISY, Insteon Hub, or Home Assistant).
  */
 void controlLight() {
-  if (!isyConfigured) return;
+  if (!integrationConfigured) return;
+  if (integrationMode == "homekit") return;  // HomeKit pushes state changes in loop()
 
   bool shouldBeOn = presenceDetected ||
-                    (millis() - lastDetectionTime < ((unsigned long)noDetectionTimeout * 1000UL));
+    (millis() - lastDetectionTime < (unsigned long)noDetectionTimeout * 1000UL);
+  if (shouldBeOn == lightOn) return;
 
-  if (shouldBeOn != lightOn) {
-    if (shouldBeOn) {
-      turnLightOn();
-    } else {
-      turnLightOff();
-    }
+  bool ok = false;
+  if (shouldBeOn) {
+    if      (integrationMode == "isy")         { turnLightOn();  return; }
+    else if (integrationMode == "insteon_hub") ok = sendInsteonHubCommand(true);
+    else if (integrationMode == "ha")          ok = sendHACommand(true);
+    if (ok) lightOn = true;
+  } else {
+    if      (integrationMode == "isy")         { turnLightOff(); return; }
+    else if (integrationMode == "insteon_hub") ok = sendInsteonHubCommand(false);
+    else if (integrationMode == "ha")          ok = sendHACommand(false);
+    if (ok) lightOn = false;
   }
 }
 
@@ -926,6 +1102,189 @@ void handleCaptivePortal() {
 }
 
 /*
+ * sendIntegrationSection - Send the integration selector UI block as streamed HTML.
+ * @param isSetup true for initial setup (shows existing passwords), false for settings page
+ */
+void sendIntegrationSection(bool isSetup) {
+  String selNone = (integrationMode == "none")        ? " selected" : "";
+  String selISY  = (integrationMode == "isy")         ? " selected" : "";
+  String selHub  = (integrationMode == "insteon_hub") ? " selected" : "";
+  String selHA   = (integrationMode == "ha")          ? " selected" : "";
+  String httpsChecked   = useHTTPS ? " checked" : "";
+  String haHTTPSChecked = haHTTPS  ? " checked" : "";
+
+  server.sendContent(
+    "<h2>Integration (Optional)</h2>"
+    "<div class='info'>Select how this sensor controls lights. Leave as &ldquo;None&rdquo; "
+    "for sensor-only use.</div>"
+    "<label for='integration_mode'>Integration Type:</label>"
+    "<select name='integration_mode' id='integration_mode' "
+    "onchange='showIntegration(this.value)'>"
+    "<option value='none'" + selNone + ">None &mdash; sensor only</option>"
+    "<option value='isy'" + selISY + ">EISY / ISY / Polisy</option>"
+    "<option value='insteon_hub'" + selHub + ">Insteon Hub 2 (Model 2245)</option>"
+    "<option value='ha'" + selHA + ">Home Assistant</option>"
+  );
+#ifdef ENABLE_HOMEKIT
+  {
+    String selHK = (integrationMode == "homekit") ? " selected" : "";
+    server.sendContent("<option value='homekit'" + selHK + ">Apple HomeKit (Native)</option>");
+  }
+#endif
+  server.sendContent("</select>");
+
+  // --- ISY section ---
+  server.sendContent(
+    "<div id='sect_isy'>"
+    "<h2>EISY / ISY / Polisy Settings</h2>"
+    "<label for='isy_ip'>Controller IP Address:</label>"
+    "<input type='text' name='isy_ip' id='isy_ip' value='" + isyIP +
+    "' placeholder='e.g., 192.168.1.100' autocomplete='off'>"
+    "<label><input type='checkbox' name='use_https' value='1'" + httpsChecked + ">"
+    "<span class='chk-label'>Use HTTPS (EISY only &mdash; leave unchecked for ISY994)</span></label>"
+    "<label for='isy_user'>Username:</label>"
+    "<input type='text' name='isy_user' id='isy_user' value='" + isyUsername +
+    "' placeholder='Usually: admin' autocomplete='username'>"
+    "<label for='isy_pass'>Password:</label>"
+  );
+  if (isSetup) {
+    server.sendContent(
+      "<input type='password' name='isy_pass' id='isy_pass' value='" + isyPassword +
+      "' placeholder='EISY/ISY password' autocomplete='off'>"
+    );
+  } else {
+    server.sendContent(
+      "<input type='password' name='isy_pass' id='isy_pass' "
+      "placeholder='Leave blank to keep current' autocomplete='off'>"
+    );
+  }
+  server.sendContent(
+    "<label for='isy_device'>Insteon Device Address:</label>"
+    "<input type='text' name='isy_device' id='isy_device' value='" + isyDeviceID +
+    "' placeholder='e.g., 1A.2B.3C' autocomplete='off'>"
+    "<details><summary>Help: EISY/ISY Settings</summary>"
+    "<p style='font-size:13px;color:#555'>"
+    "<strong>Controller IP:</strong> Find in Admin Console &rarr; Configuration &rarr; System.<br><br>"
+    "<strong>Use HTTPS:</strong> Check for EISY. ISY994 users leave unchecked.<br><br>"
+    "<strong>Username/Password:</strong> Your EISY/ISY admin credentials (default: admin/admin).<br><br>"
+    "<strong>Device Address:</strong> Right-click light in Admin Console &rarr; Copy &rarr; Address. "
+    "Format: 1A.2B.3C</p></details>"
+    "</div>"
+  );
+
+  // --- Insteon Hub section ---
+  server.sendContent(
+    "<div id='sect_insteon_hub'>"
+    "<h2>Insteon Hub 2 Settings</h2>"
+    "<label for='hub_ip'>Hub IP Address:</label>"
+    "<input type='text' name='hub_ip' id='hub_ip' value='" + insteonHubIP +
+    "' placeholder='e.g., 192.168.1.50' autocomplete='off'>"
+    "<label for='hub_port'>Hub Port:</label>"
+    "<input type='text' name='hub_port' id='hub_port' value='" + insteonHubPort +
+    "' placeholder='25105'>"
+    "<label for='hub_user'>Hub Username:</label>"
+    "<input type='text' name='hub_user' id='hub_user' value='" + insteonHubUser +
+    "' placeholder='Hub username'>"
+    "<label for='hub_pass'>Hub Password:</label>"
+  );
+  if (isSetup) {
+    server.sendContent(
+      "<input type='password' name='hub_pass' id='hub_pass' value='" + insteonHubPass +
+      "' placeholder='Hub password' autocomplete='off'>"
+    );
+  } else {
+    server.sendContent(
+      "<input type='password' name='hub_pass' id='hub_pass' "
+      "placeholder='Leave blank to keep current' autocomplete='off'>"
+    );
+  }
+  server.sendContent(
+    "<label for='hub_addr'>Insteon Device Address:</label>"
+    "<input type='text' name='hub_addr' id='hub_addr' value='" + insteonHubAddr +
+    "' placeholder='e.g., 1A.2B.3C' autocomplete='off'>"
+    "<details><summary>Help: Insteon Hub 2 Settings</summary>"
+    "<p style='font-size:13px;color:#555'>"
+    "<strong>Hub IP:</strong> Find in the Insteon app or your router's DHCP list.<br><br>"
+    "<strong>Port:</strong> Default is 25105. Only change if you modified Hub settings.<br><br>"
+    "<strong>Username/Password:</strong> Found on the label on the bottom of your Hub.<br><br>"
+    "<strong>Device Address:</strong> Found in Insteon app under device details. "
+    "Format: 1A.2B.3C</p></details>"
+    "</div>"
+  );
+
+  // --- Home Assistant section ---
+  server.sendContent(
+    "<div id='sect_ha'>"
+    "<h2>Home Assistant Settings</h2>"
+    "<label for='ha_ip'>HA IP Address:</label>"
+    "<input type='text' name='ha_ip' id='ha_ip' value='" + haIP +
+    "' placeholder='e.g., 192.168.1.200' autocomplete='off'>"
+    "<label for='ha_port'>HA Port:</label>"
+    "<input type='text' name='ha_port' id='ha_port' value='" + haPort +
+    "' placeholder='8123'>"
+    "<label><input type='checkbox' name='ha_https' value='1'" + haHTTPSChecked + ">"
+    "<span class='chk-label'>Use HTTPS</span></label>"
+    "<label for='ha_token'>Long-Lived Access Token:</label>"
+  );
+  if (isSetup) {
+    server.sendContent(
+      "<input type='password' name='ha_token' id='ha_token' value='" + haToken +
+      "' placeholder='Paste token here' autocomplete='off'>"
+    );
+  } else {
+    server.sendContent(
+      "<input type='password' name='ha_token' id='ha_token' "
+      "placeholder='Leave blank to keep current' autocomplete='off'>"
+    );
+  }
+  server.sendContent(
+    "<label for='ha_entity'>Entity ID:</label>"
+    "<input type='text' name='ha_entity' id='ha_entity' value='" + haEntityId +
+    "' placeholder='e.g., light.living_room' autocomplete='off'>"
+    "<details><summary>Help: Home Assistant Settings</summary>"
+    "<p style='font-size:13px;color:#555'>"
+    "<strong>HA IP:</strong> IP address of your Home Assistant server.<br><br>"
+    "<strong>Port:</strong> Default is 8123. Use 443 with HTTPS for remote/Nabu Casa.<br><br>"
+    "<strong>Access Token:</strong> In HA go to Profile &rarr; Security &rarr; "
+    "Long-Lived Access Tokens &rarr; Create Token.<br><br>"
+    "<strong>Entity ID:</strong> The light or switch to control, e.g. light.living_room. "
+    "Find under HA Settings &rarr; Entities.</p></details>"
+    "</div>"
+  );
+
+#ifdef ENABLE_HOMEKIT
+  server.sendContent(
+    "<div id='sect_homekit'>"
+    "<h2>Apple HomeKit Settings</h2>"
+    "<div class='info'>HomeKit native mode exposes this device as an occupancy sensor "
+    "directly in the Apple Home app. No hub required.</div>"
+    "<label for='hk_code'>Pairing Code (8 digits, no hyphens):</label>"
+    "<input type='text' name='hk_code' id='hk_code' value='" + homekitCode +
+    "' placeholder='11122333' maxlength='8' pattern='[0-9]{8}'>"
+    "<details><summary>Help: HomeKit Pairing</summary>"
+    "<p style='font-size:13px;color:#555'>"
+    "After saving and rebooting, open the <strong>Apple Home</strong> app, "
+    "tap + &rarr; Add Accessory &rarr; More Options. "
+    "Enter the code above when prompted.</p></details>"
+    "</div>"
+  );
+#endif
+
+  // Show/hide JavaScript
+  server.sendContent(
+    "<script>"
+    "function showIntegration(v){"
+    "['isy','insteon_hub','ha','homekit'].forEach(function(id){"
+    "var el=document.getElementById('sect_'+id);"
+    "if(el)el.style.display=(v===id)?'':'none';"
+    "});"
+    "}"
+    "showIntegration(document.getElementById('integration_mode').value);"
+    "</script>"
+  );
+}
+
+/*
  * handleSetupRoot - Serve the captive portal / initial setup page.
  */
 void handleSetupRoot() {
@@ -1001,32 +1360,8 @@ void handleSetupRoot() {
     "If you forget it, you must factory reset the device by holding the BOOT button for 5 seconds.</p></details>"
   );
 
-  // --- EISY/ISY Settings ---
-  String httpsChecked = useHTTPS ? " checked" : "";
-  server.sendContent(
-    "<h2>EISY / ISY / Polisy Settings (Optional)</h2>"
-    "<div class='warn'>These settings are <strong>optional</strong>. Only fill them out if you have "
-    "a Universal Devices EISY, Polisy, or ISY controller. Leave blank to skip light control.</div>"
-    "<label for='isy_ip'>Controller IP Address:</label>"
-    "<input type='text' name='isy_ip' id='isy_ip' value='" + isyIP + "' placeholder='e.g., 192.168.1.100' autocomplete='off'>"
-    "<label>"
-    "<input type='checkbox' name='use_https' value='1'" + httpsChecked + ">"
-    "<span class='chk-label'>Use HTTPS (EISY only — leave unchecked for ISY994)</span>"
-    "</label>"
-    "<label for='isy_user'>Controller Username:</label>"
-    "<input type='text' name='isy_user' id='isy_user' value='" + isyUsername + "' placeholder='Usually: admin' autocomplete='username'>"
-    "<label for='isy_pass'>Controller Password:</label>"
-    "<input type='password' name='isy_pass' id='isy_pass' value='" + isyPassword + "' placeholder='EISY/ISY password' autocomplete='off'>"
-    "<label for='isy_device'>Insteon Device Address:</label>"
-    "<input type='text' name='isy_device' id='isy_device' value='" + isyDeviceID + "' placeholder='e.g., 1A.2B.3C' autocomplete='off'>"
-    "<details><summary>Help: EISY/ISY Settings</summary>"
-    "<p style='font-size:13px;color:#555'>"
-    "<strong>Controller IP:</strong> Find in EISY/ISY Admin Console → Configuration → System.<br><br>"
-    "<strong>Use HTTPS:</strong> Check for EISY. ISY994 users leave unchecked.<br><br>"
-    "<strong>Username/Password:</strong> Your EISY/ISY admin credentials (default: admin/admin).<br><br>"
-    "<strong>Insteon Device Address:</strong> Right-click the light in Admin Console → Copy → Address. "
-    "Format: 1A.2B.3C</p></details>"
-  );
+  // --- Integration ---
+  sendIntegrationSection(true);
 
   // --- Advanced (Pins) ---
   server.sendContent(
@@ -1090,6 +1425,28 @@ void handleSetupSave() {
 
   wifiSSID.trim(); wifiPassword.trim(); isyIP.trim();
   isyUsername.trim(); isyPassword.trim(); isyDeviceID.trim();
+
+  integrationMode = server.arg("integration_mode");
+  if (integrationMode == "") integrationMode = "none";
+
+  insteonHubIP   = server.arg("hub_ip");   insteonHubIP.trim();
+  String hubPort = server.arg("hub_port"); hubPort.trim();
+  insteonHubPort = (hubPort == "") ? DEFAULT_INSTEON_HUB_PORT : hubPort;
+  insteonHubUser = server.arg("hub_user"); insteonHubUser.trim();
+  insteonHubPass = server.arg("hub_pass"); insteonHubPass.trim();
+  insteonHubAddr = server.arg("hub_addr"); insteonHubAddr.trim();
+
+  haIP      = server.arg("ha_ip");    haIP.trim();
+  String haPortArg = server.arg("ha_port"); haPortArg.trim();
+  haPort    = (haPortArg == "") ? DEFAULT_HA_PORT : haPortArg;
+  haHTTPS   = (server.arg("ha_https") == "1");
+  haToken   = server.arg("ha_token"); haToken.trim();
+  haEntityId = server.arg("ha_entity"); haEntityId.trim();
+
+#ifdef ENABLE_HOMEKIT
+  String hkCode = server.arg("hk_code"); hkCode.trim();
+  if (hkCode.length() == 8) homekitCode = hkCode;
+#endif
 
   String timeoutStr = server.arg("timeout");
   noDetectionTimeout = timeoutStr.toInt();
@@ -1225,7 +1582,13 @@ void handleStatus() {
     ? (isMoving ? "<span class='badge badge-green'>Moving</span>" : "<span class='badge badge-yellow'>Static</span>")
     : "<span class='badge badge-red'>No Presence</span>";
 
-  String lightBadge = isyConfigured
+  String integLabel = "None";
+  if      (integrationMode == "isy")         integLabel = "EISY/ISY";
+  else if (integrationMode == "insteon_hub") integLabel = "Insteon Hub";
+  else if (integrationMode == "ha")          integLabel = "Home Assistant";
+  else if (integrationMode == "homekit")     integLabel = "HomeKit";
+
+  String lightBadge = integrationConfigured
     ? (lightOn ? "<span class='badge badge-green'>Light ON</span>" : "<span class='badge badge-red'>Light OFF</span>")
     : "<span class='badge' style='background:#eee;color:#888'>Not Configured</span>";
 
@@ -1236,6 +1599,7 @@ void handleStatus() {
     "<div class='stat-grid'>"
     "<div class='stat-card'><div class='stat-label'>Presence</div><div class='stat-value'>" + presenceBadge + "</div></div>"
     "<div class='stat-card'><div class='stat-label'>Light Control</div><div class='stat-value'>" + lightBadge + "</div></div>"
+    "<div class='stat-card'><div class='stat-label'>Integration</div><div class='stat-value'>" + integLabel + "</div></div>"
     "<div class='stat-card'><div class='stat-label'>WiFi Signal</div><div class='stat-value'>" + String(signalPct) + "% (" + String(rssi) + " dBm)</div></div>"
     "<div class='stat-card'><div class='stat-label'>Uptime</div><div class='stat-value'>" + getUptimeString() + "</div></div>"
     "<div class='stat-card'><div class='stat-label'>IP Address</div><div class='stat-value'>" + WiFi.localIP().toString() + "</div></div>"
@@ -1270,16 +1634,44 @@ void handleConfig() {
     // Save posted settings
     String action = server.arg("action");
 
-    wifiSSID     = server.arg("wifi_ssid");
+    wifiSSID    = server.arg("wifi_ssid");
     wifiPassword = server.arg("wifi_pass");
-    isyIP        = server.arg("isy_ip");
-    isyUsername  = server.arg("isy_user");
-    isyPassword  = server.arg("isy_pass");
-    isyDeviceID  = server.arg("isy_device");
-    useHTTPS     = (server.arg("use_https") == "1");
+    isyIP       = server.arg("isy_ip");
+    isyUsername = server.arg("isy_user");
+    isyDeviceID = server.arg("isy_device");
+    useHTTPS    = (server.arg("use_https") == "1");
+    // Keep existing ISY password if field left blank
+    String isyPassArg = server.arg("isy_pass");
+    if (isyPassArg.length() > 0) isyPassword = isyPassArg;
 
     wifiSSID.trim(); wifiPassword.trim(); isyIP.trim();
     isyUsername.trim(); isyPassword.trim(); isyDeviceID.trim();
+
+    integrationMode = server.arg("integration_mode");
+    if (integrationMode == "") integrationMode = "none";
+
+    insteonHubIP   = server.arg("hub_ip");   insteonHubIP.trim();
+    insteonHubUser = server.arg("hub_user"); insteonHubUser.trim();
+    insteonHubAddr = server.arg("hub_addr"); insteonHubAddr.trim();
+    String hubPortArg2 = server.arg("hub_port"); hubPortArg2.trim();
+    insteonHubPort = (hubPortArg2 == "") ? DEFAULT_INSTEON_HUB_PORT : hubPortArg2;
+    // Keep existing Hub password if field left blank
+    String hubPassArg = server.arg("hub_pass");
+    if (hubPassArg.length() > 0) insteonHubPass = hubPassArg;
+
+    haIP      = server.arg("ha_ip");    haIP.trim();
+    haEntityId = server.arg("ha_entity"); haEntityId.trim();
+    haHTTPS   = (server.arg("ha_https") == "1");
+    String haPortArg2 = server.arg("ha_port"); haPortArg2.trim();
+    haPort    = (haPortArg2 == "") ? DEFAULT_HA_PORT : haPortArg2;
+    // Keep existing HA token if field left blank
+    String haTokenArg = server.arg("ha_token");
+    if (haTokenArg.length() > 0) haToken = haTokenArg;
+
+#ifdef ENABLE_HOMEKIT
+    String hkCode = server.arg("hk_code"); hkCode.trim();
+    if (hkCode.length() == 8) homekitCode = hkCode;
+#endif
 
     String timeoutStr = server.arg("timeout");
     noDetectionTimeout = timeoutStr.toInt();
@@ -1397,21 +1789,8 @@ void handleConfig() {
     "</select>"
   );
 
-  // EISY/ISY
-  String httpsChecked = useHTTPS ? " checked" : "";
-  server.sendContent(
-    "<h2>EISY / ISY / Polisy</h2>"
-    "<label>Controller IP:</label>"
-    "<input type='text' name='isy_ip' value='" + isyIP + "' placeholder='e.g. 192.168.1.100'>"
-    "<label><input type='checkbox' name='use_https' value='1'" + httpsChecked + ">"
-    "<span class='chk-label'>Use HTTPS (EISY only)</span></label>"
-    "<label>Username:</label>"
-    "<input type='text' name='isy_user' value='" + isyUsername + "'>"
-    "<label>Password:</label>"
-    "<input type='password' name='isy_pass' placeholder='Leave blank to keep current' autocomplete='off'>"
-    "<label>Insteon Device Address:</label>"
-    "<input type='text' name='isy_device' value='" + isyDeviceID + "' placeholder='e.g. 1A.2B.3C'>"
-  );
+  // Integration
+  sendIntegrationSection(false);
 
   // Admin password change
   server.sendContent(
@@ -1551,6 +1930,8 @@ void handleApiStatus() {
   json += "  \"moving\": " + String(isMoving ? "true" : "false") + ",\n";
   json += "  \"light_on\": " + String(lightOn ? "true" : "false") + ",\n";
   json += "  \"isy_configured\": " + String(isyConfigured ? "true" : "false") + ",\n";
+  json += "  \"integration\": \"" + integrationMode + "\",\n";
+  json += "  \"integration_configured\": " + String(integrationConfigured ? "true" : "false") + ",\n";
   json += "  \"uptime_ms\": " + String(millis()) + ",\n";
   json += "  \"free_heap\": " + String(ESP.getFreeHeap()) + ",\n";
   json += "  \"wifi_rssi\": " + String(WiFi.RSSI()) + ",\n";
@@ -1760,7 +2141,7 @@ void setup() {
   Serial.println(FIRMWARE_VERSION);
   Serial.print(F("Board: "));
   Serial.println(BOARD_TYPE);
-  Serial.println(F("Compatible: EISY, Polisy, ISY994, ISY994i"));
+  Serial.println(F("Integrations: EISY/ISY, Insteon Hub 2, Home Assistant, HomeKit"));
   Serial.println(F("================================================\n"));
 
   // Initialize NeoPixel LED
@@ -1832,7 +2213,7 @@ void loop() {
   readSensorData();
   updateLED();
 
-  if (isyConfigured) {
+  if (integrationConfigured) {
     controlLight();
   }
 

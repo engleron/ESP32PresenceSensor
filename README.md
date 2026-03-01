@@ -8,22 +8,22 @@ Supports multiple ESP32 board variants and both PIR and mmWave (LD2410) sensors.
 ## Features
 
 - **Multi-board support** — works with ESP32 DevKit, ESP32-S2, ESP32-S3, ESP32-C3, and WEMOS LOLIN D32 out of the box; easily extended for other boards
-- **PIR sensor** — fast, low-cost motion detection (always enabled)
+- **PIR sensor** — fast, low-cost motion detection (enabled upon request)
 - **LD2410 mmWave radar** *(optional)* — detects stationary presence that PIR misses
 - **Automatic light control** — turns on when presence is detected, turns off after a configurable timeout
 - **Serial debugging** — prints board name, pin assignments, and light state to the Serial Monitor
+- wifi interface for setup and config including a hotspot for initial setup, using button to reset to factory and have the LED provide status
 
 ---
 
 ## Supported Boards
 
-| Board | PIR GPIO | Light GPIO | Radar RX | Radar TX |
-|---|---|---|---|---|
-| ESP32 DevKit (generic) | 15 | 18 | 32 | 33 |
-| ESP32-S2 | 10 | 6 | 9 | 8 |
-| ESP32-S3 | 4 | 5 | 17 | 18 |
-| ESP32-C3 | 2 | 3 | 4 | 5 |
-| WEMOS LOLIN D32 / D32 Pro | 34 | 26 | 16 | 17 |
+| Board |
+|---|
+| ESP32 DevKit (generic) |
+| ESP32-S2 |
+| ESP32-S3 |
+| ESP32-C3 |
 
 Pin assignments can be changed in the **BOARD-SPECIFIC PIN DEFINITIONS** section of the sketch.  
 To add another board, insert a new `#elif` block in that section.
@@ -48,6 +48,13 @@ To add another board, insert a new `#elif` block in that section.
   - GND → GND
   - TX  → `RADAR_RX_PIN` (ESP32 receives)
   - RX  → `RADAR_TX_PIN` (ESP32 transmits)
+
+ * LD2410C Sensor connected to the ESP32 DevKitC:
+ *   VCC -> 5V on ESP32
+ *   GND -> GND on ESP32
+ *   TX (from sensor) -> GPIO18 (ESP32 RX for UART2)
+ *   RX (from sensor) -> GPIO17 (ESP32 TX for UART2)
+ *   OUT -> GPIO4 (digital presence detection)
 
 ---
 

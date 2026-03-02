@@ -67,6 +67,39 @@ Runtime settings remain in NVS via `Preferences`; compile-time defaults are inte
 - **Watchdog** — `esp_task_wdt` with 8-second timeout
 - **HomeKit** — compile-time only; uncomment `#define ENABLE_HOMEKIT` and install arduino-homekit-esp32 library
 
+### LED State Reference (PresenceRuntime.cpp)
+
+| State | Color | Pattern | Code function |
+|-------|-------|---------|---------------|
+| Setup mode | Blue | Blinking 1s | `blinkBlueHeartbeat()` |
+| Service mode | Purple | Blinking 1s | `blinkPurpleHeartbeat()` |
+| Presence detected | Green | Solid | `setRGB(0,255,0)` in `updateLED()` |
+| No presence, light on | Yellow | Solid | `setRGB(255,255,0)` in `updateLED()` |
+| No presence, final-minute warning | Red | Pulsing (accelerating) | `pulseRedWarning()` in `updateLED()` |
+| No presence, light off | Red | Solid | `setRGB(255,0,0)` in `updateLED()` |
+| Sensor error | Red/Blue | Alternating 500ms | `blinkRedBlue()` in `updateLED()` |
+| Factory reset hold stages | Red → Red/Blue slow → Red/Blue fast | Staged | `checkResetButtonHeld()` |
+| Factory reset confirmed | Purple | 3 quick flashes | `checkResetButtonHeld()` |
+
+The `warningState` in `updateLED()` is true when `remainingMs <= 60000UL` (final 60 seconds before timeout-off). The pulse period accelerates in 15-second steps: 1600ms → 1100ms → 700ms → 400ms.
+
+### API Routes (PresenceWeb.cpp)
+
+Run-mode routes registered in `setupWebServerRunMode()`:
+
+| Route | Method | Auth | Handler |
+|-------|--------|------|---------|
+| `/` | GET | yes | `handleStatus` |
+| `/status` | GET | yes | `handleStatus` |
+| `/login` | GET/POST | no | `handleLogin` |
+| `/logout` | GET | yes | `handleLogout` |
+| `/config` | GET/POST | yes | `handleConfig` |
+| `/reset` | GET/POST | yes | `handleReset` |
+| `/api/status` | GET | no | `handleApiStatus` |
+| `/api/config/export` | GET | yes | `handleApiConfigExport` |
+| `/api/login` | POST | no | `handleApiLogin` |
+| `/api/logout` | POST | yes | `handleApiLogout` |
+
 ### Storage
 
 All persistent settings stored via `Preferences` (ESP32 NVS flash). No filesystem (SPIFFS/LittleFS) is used.

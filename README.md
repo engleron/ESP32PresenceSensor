@@ -1,6 +1,6 @@
 # ESP32 Presence Detection System
 
-An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor that integrates with Universal Devices EISY/ISY/Polisy controllers to automatically control Insteon lighting based on presence detection.
+An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor with multiple home automation integration options — EISY/ISY/Polisy controllers, Insteon Hub 2 (Model 2245), Home Assistant, and optional native HomeKit — for automatic light control based on presence detection.
 
 ---
 
@@ -43,7 +43,11 @@ An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor 
 - [x] **On-demand service mode** — BOOT short press toggles LAN web/OTA access (purple blinking LED)
 - [x] **mDNS + OTA** — Available when run-mode web services are enabled
 - [x] **Export/import configuration** — JSON format for backup and restore
+- [x] **Multi-integration support** — Select active integration via web UI: EISY/ISY/Polisy, Insteon Hub 2, Home Assistant, HomeKit, or None; only one active at a time
 - [x] **EISY/ISY/Polisy integration** — Automatic light control via REST API (HTTP and HTTPS)
+- [x] **Insteon Hub 2 integration** — Direct non-blocking control via Insteon Hub 2 (Model 2245) with async FreeRTOS worker task
+- [x] **Home Assistant integration** — Light control via HA REST API with Bearer token authentication (HTTP and HTTPS)
+- [x] **HomeKit integration** — Compile-time optional native HomeKit support (requires arduino-homekit-esp32 library)
 - [x] **Rate limiting** — Brute-force protection on login page
 - [x] **Watchdog timer** — Auto-recovery from hangs
 - [x] **RGB LED status** — Color-coded feedback for all device states
@@ -254,7 +258,6 @@ Click **Save Configuration**. The device will:
 1. Save your settings
 2. Restart automatically
 3. Connect to your WiFi network
-4. Flash the LED green 3 times when connected successfully
 
 ### Step 4: Access the Web Interface
 
@@ -268,8 +271,10 @@ Find the device's IP address in your Serial Monitor output, or navigate to `http
 |-----------|---------|---------|
 | Blue | Blinking (1s on/1s off) | Setup mode — waiting for configuration |
 | Green | Solid | Presence detected |
-| Red | Solid | No presence detected |
-| Red/Blue | Alternating fast blink | Error condition |
+| Yellow | Solid | No presence, light still on — timeout countdown active |
+| Red | Pulsing (accelerating) | No presence, final-minute warning before auto-off |
+| Red | Solid | No presence, light is off |
+| Red/Blue | Alternating | Sensor error |
 | Purple | Blinking (1s on/1s off) | Service mode (LAN web/OTA enabled) |
 | Purple | 3 quick flashes | Factory reset confirmed |
 
@@ -295,8 +300,8 @@ After initial setup, if service mode is enabled, access the web interface at:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/status` | GET | Current status as JSON (no auth) |
-| `/api/config` | POST | Update configuration (auth required) |
+| `/api/status` | GET | Current status as JSON (no auth required) |
+| `/api/config/export` | GET | Export configuration as JSON (auth required) |
 | `/api/login` | POST | Authenticate, returns session cookie |
 | `/api/logout` | POST | Invalidate session |
 
@@ -334,6 +339,22 @@ To reset all settings and return to setup mode:
 6. Device reboots into setup mode (blue blinking LED)
 
 > **Warning:** Factory reset erases ALL settings including WiFi credentials, admin password, and EISY/ISY configuration.
+
+---
+
+## Integration Options
+
+The firmware supports multiple home automation integrations. Select the active one from the **Integration Mode** dropdown in the setup or settings web UI — only one integration is active at a time.
+
+| Integration | Description |
+|-------------|-------------|
+| **None** | Sensor-only mode; LED and web dashboard still work |
+| **EISY / ISY / Polisy** | REST API control via Universal Devices controllers |
+| **Insteon Hub 2** | Direct HTTP control via Insteon Hub 2 (Model 2245) |
+| **Home Assistant** | REST API with Bearer token; HTTP or HTTPS |
+| **HomeKit** | Native HomeKit accessory (compile-time only) |
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for per-integration setup details.
 
 ---
 
@@ -446,7 +467,7 @@ Please include:
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-**Current version: v2.3.0** — Low-latency runtime improvements, BOOT short-press service mode, async setup scanning, and integration worker task.
+**Current version: v2.3.0** — Multi-integration support (EISY/ISY, Insteon Hub 2, Home Assistant, HomeKit), modular architecture, low-latency runtime, BOOT short-press service mode, async setup scanning, and integration worker task.
 
 ---
 

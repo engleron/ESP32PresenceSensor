@@ -59,6 +59,26 @@ Refactor release focused on maintainability, modularity, and cleaner project con
 
 ---
 
+## [2.1.0] - 2026-03-01
+
+Multi-integration release adding direct Insteon Hub 2, Home Assistant, and optional HomeKit control paths alongside the existing EISY/ISY integration.
+
+### Added
+
+- **Insteon Hub 2 integration** — Direct HTTP control of Insteon devices via the Insteon Hub 2 (Model 2245) API, with Basic auth and `cmd1+cmd2` payload format.
+- **Home Assistant integration** — REST API light control via Bearer token, supporting HTTP and HTTPS (`setInsecure` for self-signed certs).
+- **HomeKit integration** — Compile-time optional native HomeKit accessory support (uncomment `#define ENABLE_HOMEKIT` and install arduino-homekit-esp32 library).
+- **Integration mode selector** — Single NVS key `int_mode` selects the active integration (`none` | `isy` | `insteon_hub` | `ha` | `homekit`); only one integration is active at a time.
+- **Auto-migration** — Existing devices with ISY configured automatically migrate to `integrationMode = "isy"` on first load; no factory reset required.
+- **Web UI integration panels** — Setup and settings pages updated with integration dropdown and per-integration settings panels for all supported modes.
+
+### Changed
+
+- **Firmware version bumped to `2.1.0`**.
+- **`controlLight()` refactored** to dispatch to the selected integration rather than always calling the ISY path.
+
+---
+
 ## [2.0.0] - 2026-03-01
 
 Major release with complete refactor, multi-board support, enhanced security, and comprehensive web interface.

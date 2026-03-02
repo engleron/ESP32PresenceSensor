@@ -1,1 +1,9 @@
-#include "ESP32Presence_impl.hpp"
+#include "PresenceRuntime.h"
+
+void setup() {
+  appSetup();
+}
+
+void loop() {
+  appLoop();
+}

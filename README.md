@@ -12,6 +12,8 @@ An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor 
 - [Software Requirements](#software-requirements)
 - [Wiring](#wiring)
 - [Installation](#installation)
+- [Project Structure](#project-structure)
+- [Compile-Time Configuration](#compile-time-configuration)
 - [First-Time Setup](#first-time-setup)
 - [LED Status Reference](#led-status-reference)
 - [Web Interface](#web-interface)
@@ -114,7 +116,7 @@ Install via Arduino IDE → Sketch → Include Library → Manage Libraries:
    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
    ```
 3. Go to Tools → Board → Boards Manager
-4. Search for "esp32" and install **esp32 by Espressif Systems** (version 2.0.0 or later)
+4. Search for "esp32" and install **esp32 by Espressif Systems** (version 3.3.7 or later recommended)
 
 ---
 
@@ -180,6 +182,33 @@ Go to **Tools → Board** and select:
 4. Open Serial Monitor (115200 baud) to see startup messages
 
 > **Note:** During compilation, you will see a warning like `"Compiling for ESP32"` or `"Compiling for ESP32-S3"` — this confirms the board was detected correctly.
+
+---
+
+## Project Structure
+
+Firmware is now organized into focused modules under `ESP32Presence/`:
+
+- `ESP32Presence.ino` — minimal Arduino entrypoint that calls `appSetup()` / `appLoop()`
+- `PresenceConfig.h` — central compile-time defaults (pins, timers, ports, firmware version)
+- `PresenceState.h/.cpp` — global runtime state and hardware objects
+- `PresenceCore.h/.cpp` — utilities, security/session, configuration persistence
+- `PresenceIntegrations.h/.cpp` — EISY/ISY, Insteon Hub, and Home Assistant control
+- `PresenceWeb.h/.cpp` — setup portal, authenticated UI, and API endpoints
+- `PresenceRuntime.h/.cpp` — LED/sensor/reset logic, WiFi setup, runtime loop
+
+---
+
+## Compile-Time Configuration
+
+Use [`ESP32Presence/PresenceConfig.h`](ESP32Presence/PresenceConfig.h) as the single source of truth for:
+
+- firmware version
+- board default pins
+- timing constants (heartbeat, watchdog, session timeout, etc.)
+- default ports and feature flags
+
+This file is intended for developer-level defaults. User-level settings (WiFi credentials, integration data, brightness, custom pins) are still changed in the web UI and stored in NVS (`Preferences`).
 
 ---
 
@@ -397,7 +426,7 @@ Please include:
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-**Current version: v2.0.0** — Complete refactor with multi-board support, enhanced web interface, and security improvements.
+**Current version: v2.2.0** — Modular `.h/.cpp` architecture, centralized compile-time configuration, and documentation refresh.
 
 ---
 

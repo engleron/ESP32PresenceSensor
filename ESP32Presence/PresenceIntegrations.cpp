@@ -1,4 +1,6 @@
-#pragma once
+#include "PresenceIntegrations.h"
+#include "PresenceCore.h"
+
 
 /*
  * ================================================================

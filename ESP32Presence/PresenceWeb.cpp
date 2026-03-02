@@ -1,4 +1,6 @@
-#pragma once
+#include "PresenceWeb.h"
+#include "PresenceCore.h"
+
 
 /*
  * ================================================================
@@ -46,7 +48,7 @@ summary{font-weight:bold;cursor:pointer;color:#444;}
  * @param title Page title shown in browser tab
  * @param extraHead Additional HTML to inject into <head>
  */
-void sendPageStart(const String& title, const String& extraHead = "") {
+void sendPageStart(const String& title, const String& extraHead) {
   String html = "<!DOCTYPE html><html><head>";
   html += "<meta name='viewport' content='width=device-width,initial-scale=1'>";
   html += "<meta charset='UTF-8'>";
@@ -1059,4 +1061,3 @@ void setupWebServerRunMode() {
     server.send(302, "text/plain", "");
   });
 }
-

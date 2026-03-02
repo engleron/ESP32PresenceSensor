@@ -7,6 +7,7 @@ This document provides a detailed walkthrough of all configuration options for t
 ## Table of Contents
 
 - [First-Time Setup](#first-time-setup)
+- [Compile-Time Defaults](#compile-time-defaults)
 - [WiFi Configuration](#wifi-configuration)
 - [Detection Settings](#detection-settings)
 - [Admin Password](#admin-password)
@@ -30,6 +31,26 @@ When the device has no saved configuration, it automatically enters **Setup Mode
 3. Connect to this network from your phone, tablet, or laptop
 4. The configuration page opens automatically (captive portal)
    - If it doesn't open automatically, navigate to `http://192.168.4.1`
+
+---
+
+## Compile-Time Defaults
+
+Runtime configuration in the web UI is for deployed devices.  
+Developer defaults are centralized in:
+
+- [`ESP32Presence/PresenceConfig.h`](../ESP32Presence/PresenceConfig.h)
+
+This is the recommended place to adjust:
+
+- firmware version (`FIRMWARE_VERSION`)
+- board default pins (`SENSOR_*`, `RGB_LED_PIN`, `PIN_RESET`)
+- timeout and cadence defaults (`SESSION_TIMEOUT_MS`, `WDT_TIMEOUT_SECONDS`, etc.)
+- default service ports (`DEFAULT_INSTEON_HUB_PORT`, `DEFAULT_HA_PORT`)
+- optional compile-time features (`ENABLE_HOMEKIT`)
+
+Use this file when you want repository-level default behavior for all future flashes.  
+Use the web settings page when you want per-device behavior stored in NVS.
 
 ---
 

@@ -1,4 +1,8 @@
-#pragma once
+#include "PresenceRuntime.h"
+#include "PresenceCore.h"
+#include "PresenceIntegrations.h"
+#include "PresenceWeb.h"
+
 
 /*
  * ================================================================
@@ -305,7 +309,7 @@ void connectToWiFi() {
  * ================================================================
  */
 
-void setup() {
+void appSetup() {
   deviceStartTime = millis();
 
   Serial.begin(BAUD_RATE_DEBUG);
@@ -374,7 +378,7 @@ void setup() {
   Serial.println(F("================================================\n"));
 }
 
-void loop() {
+void appLoop() {
   // Reset watchdog
   esp_task_wdt_reset();
 

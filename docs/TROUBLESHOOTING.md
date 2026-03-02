@@ -289,7 +289,22 @@ This guide covers common issues and solutions for the ESP32 Presence Detection S
 
 ### "mbedtls/md.h: No such file or directory"
 
-**Solution:** This is part of the ESP32 core library. Update the ESP32 board package to version 2.0.0 or later.
+**Solution:** This is part of the ESP32 core library. Update the ESP32 board package to version 3.3.7 or later.
+
+### NeoPixel duplicate/redefinition errors (files ending in `\" 2.cpp\"`, `\" 2.h\"`, etc.)
+
+**Symptoms:** Errors like:
+- `no declaration matches 'Adafruit_NeoPixel::Adafruit_NeoPixel(...)'`
+- `redefinition of ...`
+- compile output references files such as `Adafruit_NeoPixel 2.cpp`
+
+**Cause:** A duplicated/corrupted library install in `~/Documents/Arduino/libraries/Adafruit_NeoPixel`.
+
+**Solution:**
+1. Arduino IDE → Library Manager → uninstall `Adafruit NeoPixel`
+2. Delete the folder `~/Documents/Arduino/libraries/Adafruit_NeoPixel`
+3. Reinstall `Adafruit NeoPixel` from Library Manager
+4. Re-verify compile
 
 ---
 

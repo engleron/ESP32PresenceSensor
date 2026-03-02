@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-An ESP32 Arduino firmware project for occupancy detection using the LD2410C mmWave radar sensor. Supports multiple home automation integrations (EISY/ISY/Polisy, Insteon Hub 2, Home Assistant, and optionally native HomeKit) for automatic light control. The entire firmware lives in a single `.ino` file.
+An ESP32 Arduino firmware project for occupancy detection using the LD2410C mmWave radar sensor. Supports multiple home automation integrations (EISY/ISY/Polisy, Insteon Hub 2, Home Assistant, and optionally native HomeKit) for automatic light control. The firmware is modularized into `.h/.cpp` units under `ESP32Presence/`.
 
 ## Build & Flash
 
@@ -31,15 +31,17 @@ https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32
 
 ## Architecture
 
-All firmware is in `ESP32Presence/ESP32Presence.ino`. The file is organized into clearly labeled sections with block-comment headers:
+Firmware modules live in `ESP32Presence/`:
 
-- **INCLUDES AND DEFINITIONS** — Libraries, `#define` constants, board-specific pin assignments via `CONFIG_IDF_TARGET_ESP32S3` / `CONFIG_IDF_TARGET_ESP32` preprocessor macros
-- **GLOBAL VARIABLES** — WiFi state, session, integration settings, sensor state, LED state
-- **UTILITY FUNCTIONS** — `serialPrint/Println`, `verbosePrint`, `setRGB`, `hashPassword` (SHA-256 via mbedtls), `generateSessionId`
-- **Web server route handlers** — HTML generation for setup portal, login, status dashboard, settings page, factory reset; `sendIntegrationSection()` shared helper for integration dropdown UI
-- **Sensor logic** — LD2410C UART communication at 256000 baud on Serial2; digital OUT pin polling
-- **Light control** — `controlLight()` dispatches to the active integration; `turnLightOn/Off()` for EISY/ISY; `sendInsteonHubCommand()` for Insteon Hub 2; `sendHACommand()` for Home Assistant
-- **`setup()` / `loop()`** — Main Arduino entry points
+- `ESP32Presence.ino` — thin Arduino entrypoint that calls `appSetup()` / `appLoop()`
+- `PresenceConfig.h` — compile-time defaults (firmware version, board pin defaults, timing constants, default ports)
+- `PresenceState.h/.cpp` — global runtime state + hardware objects (`strip`, `server`, `preferences`, etc.)
+- `PresenceCore.h/.cpp` — utility helpers, session/auth logic, config load/save/clear/export
+- `PresenceIntegrations.h/.cpp` — EISY/ISY, Insteon Hub 2, Home Assistant control paths
+- `PresenceWeb.h/.cpp` — setup portal, authenticated web pages, JSON API routes
+- `PresenceRuntime.h/.cpp` — LED state logic, sensor polling, reset handling, WiFi mode control, runtime loop
+
+Runtime settings remain in NVS via `Preferences`; compile-time defaults are intentionally centralized in `PresenceConfig.h`.
 
 ### Board-Specific Pin Assignments
 

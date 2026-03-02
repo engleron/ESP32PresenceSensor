@@ -11,7 +11,11 @@ This document provides a detailed walkthrough of all configuration options for t
 - [WiFi Configuration](#wifi-configuration)
 - [Detection Settings](#detection-settings)
 - [Admin Password](#admin-password)
+- [Integration Mode](#integration-mode)
 - [EISY / ISY / Polisy Integration](#eisy--isy--polisy-integration)
+- [Insteon Hub 2 Integration](#insteon-hub-2-integration)
+- [Home Assistant Integration](#home-assistant-integration)
+- [HomeKit Integration](#homekit-integration)
 - [Advanced Settings](#advanced-settings)
 - [Web Interface Usage](#web-interface-usage)
 - [Security Best Practices](#security-best-practices)
@@ -90,7 +94,14 @@ How long to wait after no presence is detected before turning off the light.
 | 5 minutes (default) | Living rooms, offices |
 | 10–15 minutes | Rooms where you sit still for long periods |
 
-**Tip:** In default OUT-pin mode, firmware uses presence/no-presence labels only. LED behavior is green = presence, yellow = no presence (light still on), red pulse = final-minute warning, solid red = no presence with light off.
+**LED behavior in run mode:**
+
+| LED | Meaning |
+|-----|---------|
+| Green (solid) | Presence detected |
+| Yellow (solid) | No presence — light still on, timeout counting down |
+| Red (pulsing, accelerating) | No presence — final-minute warning before auto-off |
+| Red (solid) | No presence — light is off |
 
 ---
 
@@ -115,6 +126,24 @@ There is no password recovery option. You must perform a factory reset:
 2. Reconfigure the device from scratch
 
 **Tip:** Write your password down and store it with your device's physical location.
+
+---
+
+## Integration Mode
+
+The firmware supports multiple home automation integrations. Use the **Integration Mode** dropdown in the setup or settings page to select which one is active. Only one integration can be active at a time.
+
+| Mode | Description |
+|------|-------------|
+| `none` | Sensor-only mode — no light control; LED and web dashboard still function |
+| `isy` | EISY / ISY / Polisy REST API |
+| `insteon_hub` | Insteon Hub 2 (Model 2245) direct HTTP control |
+| `ha` | Home Assistant REST API |
+| `homekit` | Native HomeKit (compile-time only; see [HomeKit Integration](#homekit-integration)) |
+
+The selected mode is stored in NVS under the key `int_mode`. Changing the mode takes effect immediately after saving — no reboot required.
+
+> **Auto-migration:** If you upgraded from a version before v2.1.0 with ISY settings already saved, the device automatically sets `int_mode = isy` on first boot so light control continues without a factory reset.
 
 ---
 
@@ -179,6 +208,76 @@ The REST API endpoint used: `/rest/nodes/{address}/cmd/{DON|DOF}`
 ### Test Connection
 
 After saving settings, go to the Settings page and click **Test Connection** to verify the EISY/ISY connection is working.
+
+---
+
+## Insteon Hub 2 Integration
+
+Select `insteon_hub` as the Integration Mode to control Insteon devices directly via an Insteon Hub 2 (Model 2245) on your local network. No EISY/ISY controller is required.
+
+### Required Settings
+
+| Setting | Description |
+|---------|-------------|
+| **Hub IP Address** | IP address of your Insteon Hub 2 (e.g., `192.168.1.25`) |
+| **Hub Port** | Default: `25105` |
+| **Hub Username** | Hub admin username (found on the Hub label) |
+| **Hub Password** | Hub admin password (found on the Hub label) |
+| **Insteon Device Address** | Address of the Insteon device to control (format: `1A.2B.3C`) |
+
+### How It Works
+
+Commands are sent via HTTP GET to the Hub's local API using the `cmd1+cmd2` payload format:
+- ON: `0262{hex}0F11FF=I=3`
+- OFF: `0262{hex}0F1300=I=3`
+
+Commands execute off the main sensor loop via a FreeRTOS worker task to prevent blocking. If a command fails, it retries automatically after a short delay.
+
+---
+
+## Home Assistant Integration
+
+Select `ha` as the Integration Mode to control a Home Assistant entity via the HA REST API.
+
+### Required Settings
+
+| Setting | Description |
+|---------|-------------|
+| **HA IP / Hostname** | IP or hostname of your Home Assistant instance |
+| **Port** | Default: `8123` |
+| **Use HTTPS** | Check if your HA instance uses HTTPS |
+| **Long-Lived Access Token** | Bearer token generated in HA (Profile → Long-Lived Access Tokens) |
+| **Entity ID** | The entity to control (e.g., `light.living_room`) |
+
+### How It Works
+
+- Presence detected → POST to `/api/services/homeassistant/turn_on` with `{"entity_id": "..."}`
+- Timeout expires → POST to `/api/services/homeassistant/turn_off`
+- Supports HTTP and HTTPS (uses `setInsecure()` for self-signed certificates)
+
+### Generating a Long-Lived Access Token
+
+1. Log into Home Assistant
+2. Click your profile icon (bottom-left)
+3. Scroll to **Long-Lived Access Tokens**
+4. Click **Create Token**, give it a name (e.g., `PresenceSensor`)
+5. Copy the token and paste it into the HA Token field
+
+---
+
+## HomeKit Integration
+
+HomeKit support is **compile-time only** and disabled by default.
+
+### Enabling HomeKit
+
+1. Install the `arduino-homekit-esp32` library by Mixiaoxiao via Arduino Library Manager
+2. Open `ESP32Presence/PresenceConfig.h`
+3. Uncomment `#define ENABLE_HOMEKIT`
+4. Select `homekit` as the Integration Mode in the web UI after flashing
+5. Enter your HomeKit pairing code in the HomeKit settings section
+
+> **Note:** HomeKit cannot be combined with other integrations. When `homekit` is the active mode, `controlLight()` returns immediately — state changes are pushed directly in the main loop by the HomeKit library.
 
 ---
 

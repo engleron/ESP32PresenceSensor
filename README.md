@@ -12,6 +12,8 @@ An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor 
 - [Software Requirements](#software-requirements)
 - [Wiring](#wiring)
 - [Installation](#installation)
+- [Project Structure](#project-structure)
+- [Compile-Time Configuration](#compile-time-configuration)
 - [First-Time Setup](#first-time-setup)
 - [LED Status Reference](#led-status-reference)
 - [Web Interface](#web-interface)
@@ -28,18 +30,18 @@ An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor 
 
 ## Features
 
-- [x] **Automatic presence detection** using LD2410C mmWave radar (detects motion AND static presence)
+- [x] **Automatic presence detection** using LD2410C mmWave radar (OUT pin mode: present / not present)
 - [x] **Multi-board support** — ESP32-DevKitC-32E and ESP32-S3 with compile-time auto-detection
 - [x] **Unique WiFi AP name** — `Presence_XXXX` (last 4 characters of MAC address)
-- [x] **Captive portal** — Opens configuration page automatically on iOS, Android, and Windows
+- [x] **Captive portal** — Setup AP with fallback manual URL `http://192.168.4.1`
 - [x] **Comprehensive help text** — Every setting explained in the setup UI
 - [x] **Admin password protection** — Web interface secured with SHA-256 hashed password
 - [x] **Session management** — 15-minute timeout with automatic logout
 - [x] **Status dashboard** — Live sensor status, uptime, WiFi signal, memory, and more
 - [x] **Settings management** — Change all settings via web browser, no re-flashing needed
 - [x] **Factory reset** — 5-second BOOT button hold with visual countdown feedback
-- [x] **mDNS support** — Access via `http://presence.local`
-- [x] **OTA firmware updates** — Update firmware over WiFi
+- [x] **On-demand service mode** — BOOT short press toggles LAN web/OTA access (purple blinking LED)
+- [x] **mDNS + OTA** — Available when run-mode web services are enabled
 - [x] **Export/import configuration** — JSON format for backup and restore
 - [x] **EISY/ISY/Polisy integration** — Automatic light control via REST API (HTTP and HTTPS)
 - [x] **Rate limiting** — Brute-force protection on login page
@@ -52,7 +54,7 @@ An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor 
 
 1. Flash the firmware to your ESP32 board
 2. Connect to the `Presence_XXXX` WiFi network from your phone
-3. The configuration page opens automatically — enter your WiFi credentials and settings
+3. Open `http://192.168.4.1` (captive portal may open automatically on some devices)
 4. Set an admin password (required)
 5. Done! The device connects to your WiFi and starts detecting presence
 
@@ -75,7 +77,7 @@ An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor 
 |---------------|-------|
 | Supply voltage | 5V |
 | Detection range | Up to 5 meters |
-| Detection type | Moving + Static presence |
+| Detection type | Presence (OUT pin HIGH/LOW) |
 | Communication | UART (256000 baud) |
 | Output pin | Digital HIGH/LOW |
 
@@ -114,7 +116,7 @@ Install via Arduino IDE → Sketch → Include Library → Manage Libraries:
    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
    ```
 3. Go to Tools → Board → Boards Manager
-4. Search for "esp32" and install **esp32 by Espressif Systems** (version 2.0.0 or later)
+4. Search for "esp32" and install **esp32 by Espressif Systems** (version 3.3.7 or later recommended)
 
 ---
 
@@ -183,6 +185,35 @@ Go to **Tools → Board** and select:
 
 ---
 
+## Project Structure
+
+Firmware is now organized into focused modules under `ESP32Presence/`:
+
+- `ESP32Presence.ino` — placeholder sketch file kept for Arduino IDE project structure
+- `PresenceConfig.h` — central compile-time defaults (pins, timers, ports, firmware version)
+- `PresenceState.h/.cpp` — global runtime state and hardware objects
+- `PresenceCore.h/.cpp` — utilities, security/session, configuration persistence
+- `PresenceIntegrations.h/.cpp` — EISY/ISY, Insteon Hub, and Home Assistant control
+- `PresenceWeb.h/.cpp` — setup portal, authenticated UI, and API endpoints
+- `PresenceRuntime.h/.cpp` — LED/sensor/reset logic, WiFi setup, runtime loop
+
+`setup()` and `loop()` are implemented in `PresenceRuntime.cpp` to avoid Arduino IDE prototype-generation edge cases.
+
+---
+
+## Compile-Time Configuration
+
+Use [`ESP32Presence/PresenceConfig.h`](ESP32Presence/PresenceConfig.h) as the single source of truth for:
+
+- firmware version
+- board default pins
+- timing constants (heartbeat, watchdog, session timeout, etc.)
+- default ports and feature flags
+
+This file is intended for developer-level defaults. User-level settings (WiFi credentials, integration data, brightness, custom pins) are still changed in the web UI and stored in NVS (`Preferences`).
+
+---
+
 ## First-Time Setup
 
 ### Step 1: Connect to the Setup Network
@@ -196,7 +227,7 @@ Connect to this network from your phone, tablet, or laptop.
 
 ### Step 2: Configure Your Device
 
-The configuration page opens automatically (captive portal). If it doesn't open automatically, navigate to `http://192.168.4.1` in your browser.
+The configuration page may open automatically (captive portal). If it doesn't, navigate to `http://192.168.4.1` in your browser.
 
 Fill in the following:
 
@@ -236,17 +267,17 @@ Find the device's IP address in your Serial Monitor output, or navigate to `http
 | LED Color | Pattern | Meaning |
 |-----------|---------|---------|
 | Blue | Blinking (1s on/1s off) | Setup mode — waiting for configuration |
-| Green | Solid | Movement detected |
-| Yellow | Solid | Static presence detected (person sitting still) |
+| Green | Solid | Presence detected |
 | Red | Solid | No presence detected |
 | Red/Blue | Alternating fast blink | Error condition |
+| Purple | Blinking (1s on/1s off) | Service mode (LAN web/OTA enabled) |
 | Purple | 3 quick flashes | Factory reset confirmed |
 
 ---
 
 ## Web Interface
 
-After initial setup, access the web interface at:
+After initial setup, if service mode is enabled, access the web interface at:
 - **IP Address:** `http://192.168.1.XXX` (shown in Serial Monitor)
 - **mDNS:** `http://presence.local`
 
@@ -270,6 +301,21 @@ After initial setup, access the web interface at:
 | `/api/logout` | POST | Invalidate session |
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for detailed web interface usage.
+
+---
+
+## Service Mode (BOOT Short Press)
+
+In normal run mode, web/OTA services are disabled by default for lowest detection latency.
+
+Use the BOOT button to toggle temporary LAN management access:
+
+1. **Short press BOOT** once
+2. LED changes to **purple blinking** (service mode active)
+3. Access web UI at the device IP (or `http://presence.local` if mDNS resolves)
+4. **Short press BOOT** again to exit service mode and return to normal run mode
+
+> Service mode does **not** start AP/captive setup. It only enables LAN web/OTA on your existing WiFi network.
 
 ---
 
@@ -328,13 +374,16 @@ The device can automatically control an Insteon light through your Universal Dev
 ## FAQ
 
 **Q: Why doesn't the captive portal open automatically?**
-A: Try navigating to `http://192.168.4.1` manually. Some browsers or Android versions may block automatic redirects.
+A: Try navigating to `http://192.168.4.1` manually. Many phones delay or suppress captive popups.
 
 **Q: Can I use 5 GHz WiFi?**
 A: No. The ESP32 only supports 2.4 GHz WiFi networks.
 
 **Q: The sensor detects presence even when the room is empty. What's wrong?**
 A: The LD2410C is very sensitive. Try adjusting the sensitivity settings using the LD2410C configuration tool, or move the sensor to a better location.
+
+**Q: What do the LED colors mean now?**
+A: In default OUT-pin mode: green = Presence, yellow = No Presence (light still on), red pulse = final-minute warning before auto-off, solid red = No Presence with light already off.
 
 **Q: I forgot my admin password. What do I do?**
 A: Perform a factory reset (hold BOOT button for 5 seconds). This erases all settings and you'll need to reconfigure the device.
@@ -343,7 +392,7 @@ A: Perform a factory reset (hold BOOT button for 5 seconds). This erases all set
 A: Yes! Leave the EISY/ISY settings blank. The device still detects presence and shows status on the LED and web interface.
 
 **Q: How do I update the firmware?**
-A: Use the OTA update feature in the Settings page, or re-flash via USB cable.
+A: Enter service mode (short BOOT press), then use OTA in Settings, or re-flash via USB.
 
 **Q: Why does my board show as "ESP32-DevKitC-32E" but it's actually an S3?**
 A: Make sure you selected the correct board in Arduino IDE under Tools → Board before compiling.
@@ -397,7 +446,7 @@ Please include:
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-**Current version: v2.0.0** — Complete refactor with multi-board support, enhanced web interface, and security improvements.
+**Current version: v2.3.0** — Low-latency runtime improvements, BOOT short-press service mode, async setup scanning, and integration worker task.
 
 ---
 

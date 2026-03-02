@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2026-03-02
+
+Latency and reliability release focused on real-time behavior, setup usability, and Insteon Hub robustness.
+
+### Added
+
+- **BOOT short-press service mode** — toggles LAN web/OTA access on demand without entering AP setup mode.
+- **Purple service-mode heartbeat LED** — distinct visual state for run-mode service access.
+- **Asynchronous integration worker task** — Insteon Hub commands now execute off the main sensor loop.
+- **Proactive setup scanning** — setup mode starts WiFi scanning immediately and setup page auto-refreshes while scanning.
+
+### Changed
+
+- **Firmware version bumped to `2.3.0`**.
+- **Setup initialization logging clarified** — explicitly reports whether setup mode or run mode is active.
+- **OUT-pin presence visualization updated** — `green` for presence, `yellow` for no presence while light remains on, accelerating `red` pulse in the final minute before timeout-off, and solid `red` once the light is off.
+- **Run-mode web/OTA default** remains compile-time controlled and disabled by default for low-latency operation.
+
+### Fixed
+
+- **`Presence_0000` setup SSID issue** — SSID suffix now derives from eFuse MAC, avoiding zeroed WiFi MAC edge cases at boot.
+- **Insteon Hub command reliability** — direct-send first, clear-buffer fallback retry, improved command payload (`cmd1+cmd2`), tuned timing.
+- **Main loop blocking during network actions** — eliminated for Insteon by queueing desired state to worker task.
+
+---
+
+## [2.2.0] - 2026-03-02
+
+Refactor release focused on maintainability, modularity, and cleaner project configuration boundaries.
+
+### Added
+
+- **Dedicated compile-time configuration file** — `ESP32Presence/PresenceConfig.h` now centralizes firmware version, board pin defaults, timing constants, and default ports.
+- **Modular C++ source layout** with focused `.h/.cpp` pairs:
+  - `PresenceState` (global state + hardware objects)
+  - `PresenceCore` (utility/security/config persistence)
+  - `PresenceIntegrations` (EISY/ISY, Insteon Hub, Home Assistant dispatch)
+  - `PresenceWeb` (setup portal, authenticated pages, API routes)
+  - `PresenceRuntime` (LED/sensor/reset/WiFi runtime loop)
+
+### Changed
+
+- **Arduino sketch entrypoint simplified** — `ESP32Presence.ino` now only delegates to `appSetup()` and `appLoop()`.
+- **Documentation refreshed** to describe modular architecture and centralized compile-time configuration.
+
+### Fixed
+
+- **Refactor boundary regression** where `loop()` could be truncated in intermediate split iterations.
+- **NeoPixel duplicate-source compile conflict guidance** documented and cleaned up in workflow.
+
+---
+
 ## [2.0.0] - 2026-03-01
 
 Major release with complete refactor, multi-board support, enhanced security, and comprehensive web interface.

@@ -11,5 +11,5 @@ bool checkResetButtonHeld();
 void enterConfigMode();
 void connectToWiFi();
 
-void appSetup();
-void appLoop();
+void presenceInit();
+void presenceTick();

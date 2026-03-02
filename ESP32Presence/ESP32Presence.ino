@@ -1,9 +1,2 @@
-#include "PresenceRuntime.h"
-
-void setup() {
-  appSetup();
-}
-
-void loop() {
-  appLoop();
-}
+// Placeholder sketch file.
+// Real setup()/loop() are implemented in PresenceRuntime.cpp.

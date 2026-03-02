@@ -33,13 +33,15 @@ https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32
 
 Firmware modules live in `ESP32Presence/`:
 
-- `ESP32Presence.ino` — thin Arduino entrypoint that calls `appSetup()` / `appLoop()`
+- `ESP32Presence.ino` — placeholder sketch file retained for Arduino IDE compatibility
 - `PresenceConfig.h` — compile-time defaults (firmware version, board pin defaults, timing constants, default ports)
 - `PresenceState.h/.cpp` — global runtime state + hardware objects (`strip`, `server`, `preferences`, etc.)
 - `PresenceCore.h/.cpp` — utility helpers, session/auth logic, config load/save/clear/export
 - `PresenceIntegrations.h/.cpp` — EISY/ISY, Insteon Hub 2, Home Assistant control paths
 - `PresenceWeb.h/.cpp` — setup portal, authenticated web pages, JSON API routes
 - `PresenceRuntime.h/.cpp` — LED state logic, sensor polling, reset handling, WiFi mode control, runtime loop
+
+`setup()` and `loop()` are defined in `PresenceRuntime.cpp` (not in `.ino`) to avoid Arduino preprocessor prototype-injection issues.
 
 Runtime settings remain in NVS via `Preferences`; compile-time defaults are intentionally centralized in `PresenceConfig.h`.
 

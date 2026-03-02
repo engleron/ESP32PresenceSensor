@@ -309,7 +309,7 @@ void connectToWiFi() {
  * ================================================================
  */
 
-void appSetup() {
+void presenceInit() {
   deviceStartTime = millis();
 
   Serial.begin(BAUD_RATE_DEBUG);
@@ -378,7 +378,7 @@ void appSetup() {
   Serial.println(F("================================================\n"));
 }
 
-void appLoop() {
+void presenceTick() {
   // Reset watchdog
   esp_task_wdt_reset();
 
@@ -408,4 +408,12 @@ void appLoop() {
   }
 
   delay(100);
+}
+
+void setup() {
+  presenceInit();
+}
+
+void loop() {
+  presenceTick();
 }

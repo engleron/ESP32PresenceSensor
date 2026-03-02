@@ -189,13 +189,15 @@ Go to **Tools → Board** and select:
 
 Firmware is now organized into focused modules under `ESP32Presence/`:
 
-- `ESP32Presence.ino` — minimal Arduino entrypoint that calls `appSetup()` / `appLoop()`
+- `ESP32Presence.ino` — placeholder sketch file kept for Arduino IDE project structure
 - `PresenceConfig.h` — central compile-time defaults (pins, timers, ports, firmware version)
 - `PresenceState.h/.cpp` — global runtime state and hardware objects
 - `PresenceCore.h/.cpp` — utilities, security/session, configuration persistence
 - `PresenceIntegrations.h/.cpp` — EISY/ISY, Insteon Hub, and Home Assistant control
 - `PresenceWeb.h/.cpp` — setup portal, authenticated UI, and API endpoints
 - `PresenceRuntime.h/.cpp` — LED/sensor/reset logic, WiFi setup, runtime loop
+
+`setup()` and `loop()` are implemented in `PresenceRuntime.cpp` to avoid Arduino IDE prototype-generation edge cases.
 
 ---
 

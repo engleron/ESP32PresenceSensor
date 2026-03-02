@@ -86,6 +86,16 @@ void sendNavBar() {
   );
 }
 
+static bool isNoPresenceWarningWindow() {
+  if (presenceDetected || !lightOn || noDetectionTimeout <= 0) return false;
+
+  unsigned long timeoutMs = (unsigned long)noDetectionTimeout * 1000UL;
+  unsigned long elapsedMs = millis() - lastDetectionTime;
+  if (elapsedMs >= timeoutMs) return false;
+
+  return (timeoutMs - elapsedMs) <= 60000UL;
+}
+
 /*
  * ================================================================
  * SECTION: WEB SERVER - CAPTIVE PORTAL & SETUP PAGES
@@ -96,13 +106,32 @@ void sendNavBar() {
  * scanWiFiNetworks - Scan for nearby networks and return HTML option tags.
  * @return HTML string of <option> elements for a <select> element
  */
+void startWiFiScanAsync() {
+  int state = WiFi.scanComplete();
+  if (state == WIFI_SCAN_RUNNING) return;
+  WiFi.scanDelete();
+  WiFi.scanNetworks(true, true);
+}
+
 String scanWiFiNetworks() {
-  serialPrintln(F("Scanning for WiFi networks..."));
-  int n = WiFi.scanNetworks();
+  int n = WiFi.scanComplete();
   String options = "";
 
+  if (n == WIFI_SCAN_RUNNING) {
+    return "<option value=''>Scanning networks... please wait a few seconds, then refresh</option>";
+  }
+
+  if (n == WIFI_SCAN_FAILED) {
+    serialPrintln(F("Starting WiFi network scan..."));
+    startWiFiScanAsync();
+    return "<option value=''>Starting network scan... please refresh in a few seconds</option>";
+  }
+
+  serialPrintln("WiFi scan complete: " + String(n) + " network(s)");
+
   if (n == 0) {
-    return "<option value=''>No networks found - try again</option>";
+    startWiFiScanAsync();
+    return "<option value=''>No networks found - scanning again, refresh in a few seconds</option>";
   }
 
   String seenSSIDs[50];
@@ -125,6 +154,8 @@ String scanWiFiNetworks() {
   }
 
   verbosePrint("Found " + String(n) + " networks");
+  // Kick off next async scan so the list is fresher on the next page load.
+  startWiFiScanAsync();
   return options;
 }
 
@@ -323,9 +354,14 @@ void sendIntegrationSection(bool isSetup) {
  * handleSetupRoot - Serve the captive portal / initial setup page.
  */
 void handleSetupRoot() {
+  int scanState = WiFi.scanComplete();
+  String extraHead = "";
+  if (scanState == WIFI_SCAN_RUNNING || scanState == WIFI_SCAN_FAILED) {
+    extraHead = "<meta http-equiv='refresh' content='4'>";
+  }
   String networkOptions = scanWiFiNetworks();
 
-  sendPageStart("ESP32 Presence Setup");
+  sendPageStart("ESP32 Presence Setup", extraHead);
 
   server.sendContent(
     "<h1>ESP32 Presence Detector Setup</h1>"
@@ -333,6 +369,11 @@ void handleSetupRoot() {
     "All settings can be changed later via the web interface.</div>"
     "<form action='/save' method='POST' autocomplete='on'>"
   );
+  if (scanState == WIFI_SCAN_RUNNING || scanState == WIFI_SCAN_FAILED) {
+    server.sendContent(
+      "<div class='info'>Scanning nearby WiFi networks... this page auto-refreshes every few seconds.</div>"
+    );
+  }
 
   // --- WiFi Settings ---
   server.sendContent(
@@ -613,9 +654,15 @@ void handleStatus() {
   server.sendContent("<h1>Status Dashboard</h1>");
 
   // Sensor status card
+  bool noPresenceWarning = isNoPresenceWarningWindow();
+  bool noPresenceLightOff = (!presenceDetected && !lightOn);
   String presenceBadge = presenceDetected
-    ? (isMoving ? "<span class='badge badge-green'>Moving</span>" : "<span class='badge badge-yellow'>Static</span>")
-    : "<span class='badge badge-red'>No Presence</span>";
+    ? "<span class='badge badge-green'>Presence</span>"
+    : (noPresenceLightOff
+       ? "<span class='badge badge-red'>No Presence (light off)</span>"
+       : (noPresenceWarning
+       ? "<span class='badge badge-red'>No Presence (off soon)</span>"
+       : "<span class='badge badge-yellow'>No Presence</span>"));
 
   String integLabel = "None";
   if      (integrationMode == "isy")         integLabel = "EISY/ISY";
@@ -958,11 +1005,19 @@ void handleLogout() {
  */
 void handleApiStatus() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
+  bool noPresenceWarning = isNoPresenceWarningWindow();
+  bool noPresenceLightOff = (!presenceDetected && !lightOn);
+  String presenceState = presenceDetected
+    ? "presence"
+    : (noPresenceLightOff ? "no_presence_light_off"
+       : (noPresenceWarning ? "no_presence_warning" : "no_presence"));
   String json = "{\n";
   json += "  \"version\": \"" + String(FIRMWARE_VERSION) + "\",\n";
   json += "  \"board\": \"" + String(BOARD_TYPE) + "\",\n";
   json += "  \"presence\": " + String(presenceDetected ? "true" : "false") + ",\n";
   json += "  \"moving\": " + String(isMoving ? "true" : "false") + ",\n";
+  json += "  \"presence_state\": \"" + presenceState + "\",\n";
+  json += "  \"no_presence_warning\": " + String(noPresenceWarning ? "true" : "false") + ",\n";
   json += "  \"light_on\": " + String(lightOn ? "true" : "false") + ",\n";
   json += "  \"isy_configured\": " + String(isyConfigured ? "true" : "false") + ",\n";
   json += "  \"integration\": \"" + integrationMode + "\",\n";

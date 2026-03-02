@@ -26,11 +26,11 @@ When the device has no saved configuration, it automatically enters **Setup Mode
 
 1. **Blue LED blinks** (1 second on, 1 second off)
 2. Device creates a WiFi access point:
-   - **SSID:** `Presence_XXXX` (where XXXX = last 4 chars of MAC address, e.g., `Presence_A3F2`)
+   - **SSID:** `Presence_XXXX` (where XXXX = unique chip MAC suffix, e.g., `Presence_A3F2`)
    - **Password:** None (open network)
 3. Connect to this network from your phone, tablet, or laptop
-4. The configuration page opens automatically (captive portal)
-   - If it doesn't open automatically, navigate to `http://192.168.4.1`
+4. The configuration page may open automatically (captive portal)
+   - If it does not, navigate to `http://192.168.4.1`
 
 ---
 
@@ -48,6 +48,7 @@ This is the recommended place to adjust:
 - timeout and cadence defaults (`SESSION_TIMEOUT_MS`, `WDT_TIMEOUT_SECONDS`, etc.)
 - default service ports (`DEFAULT_INSTEON_HUB_PORT`, `DEFAULT_HA_PORT`)
 - optional compile-time features (`ENABLE_HOMEKIT`)
+- run-mode web service default (`ENABLE_RUNMODE_WEB_OTA_DEFAULT`)
 
 Use this file when you want repository-level default behavior for all future flashes.  
 Use the web settings page when you want per-device behavior stored in NVS.
@@ -89,7 +90,7 @@ How long to wait after no presence is detected before turning off the light.
 | 5 minutes (default) | Living rooms, offices |
 | 10–15 minutes | Rooms where you sit still for long periods |
 
-**Tip:** If the light turns off while you're sitting still, increase this time. The LD2410C detects static presence, but may occasionally miss it depending on positioning.
+**Tip:** In default OUT-pin mode, firmware uses presence/no-presence labels only. LED behavior is green = presence, yellow = no presence (light still on), red pulse = final-minute warning, solid red = no presence with light off.
 
 ---
 
@@ -218,7 +219,11 @@ Adjust the RGB LED brightness from 10% to 100%. Default is 50% (to reduce glare 
 
 ### Accessing the Interface
 
-After initial setup, access the web interface via:
+In default low-latency mode, run-time web services are disabled until service mode is enabled.
+
+To access the web interface after setup:
+1. Short-press **BOOT** to enable service mode (purple blinking LED)
+2. Open the web interface via:
 - **IP address:** `http://192.168.1.XXX` (check your Serial Monitor or router's device list)
 - **mDNS hostname:** `http://presence.local` (works on most networks)
 
@@ -236,7 +241,7 @@ The main page shows live information updated every 2 seconds:
 
 | Field | Description |
 |-------|-------------|
-| Sensor Status | Present / No Presence, Moving / Static |
+| Sensor Status | Present / No Presence |
 | LED Color | Current LED state and meaning |
 | Light Control | On/Off status (if EISY/ISY configured) |
 | WiFi Signal | Signal strength in dBm and percentage |
@@ -270,7 +275,7 @@ On the Settings page, scroll to "Change Admin Password":
 2. **Use HTTPS** if your EISY supports it (reduces eavesdropping risk on local network)
 3. **Don't expose the device** to the internet (keep it on your local network only)
 4. **Change default EISY/ISY credentials** if you haven't already
-5. **Update firmware** periodically via OTA updates to get security fixes
+5. **Update firmware** periodically via OTA updates (service mode) to get security fixes
 
 ---
 
@@ -278,11 +283,12 @@ On the Settings page, scroll to "Change Admin Password":
 
 If you need to change settings without a factory reset:
 
-1. Navigate to `http://presence.local` (or the device's IP address)
-2. Log in with your admin password
-3. Click **Settings** in the navigation
-4. Make your changes
-5. Click **Save Settings** or **Save & Reboot**
+1. Short-press **BOOT** to enable service mode (purple blinking LED)
+2. Navigate to `http://presence.local` (or the device's IP address)
+3. Log in with your admin password
+4. Click **Settings** in the navigation
+5. Make your changes
+6. Click **Save Settings** or **Save & Reboot**
 
 ### Changing WiFi Network
 

@@ -54,7 +54,7 @@ This guide covers common issues and solutions for the ESP32 Presence Detection S
 
 ### Sensor Not Detecting Presence
 
-**Symptoms:** LED stays red even when you're in the room
+**Symptoms:** LED stays yellow (or warning-red) even when you're in the room
 
 **Check:**
 1. Verify VCC is connected to **5V** (not 3.3V) — the LD2410C requires 5V
@@ -82,18 +82,17 @@ This guide covers common issues and solutions for the ESP32 Presence Detection S
 - Reposition the sensor away from moving objects
 - Increase the Light Off Delay so brief false detections don't keep the light on
 
-### Sensor Detects Only Movement, Not Static Presence
+### No Separate Moving/Static LED State
 
-**Symptoms:** LED shows green when moving but turns red when sitting still
+**Symptoms:** LED does not show separate moving/static colors
 
 **Check:**
-- This is normal if the sensor is not properly detecting static presence
-- The LD2410C has separate sensitivity settings for movement and static detection
+- This is expected in default OUT-pin mode
+- LD2410C OUT pin reports presence HIGH/LOW, not a separate moving/static classification
 
 **Solutions:**
-- Use the LD2410C configuration software to increase static sensitivity
-- Position the sensor so it can "see" the sitting area directly
-- Reduce physical obstructions between the sensor and the sitting area
+- This is normal behavior in current firmware (green = presence, yellow = no presence while light is still on, red pulse = final-minute warning, solid red = no presence with light off)
+- If you need true moving vs static reporting, use a UART-parsing firmware mode and tune LD2410C moving/static sensitivity
 
 ---
 
@@ -165,9 +164,10 @@ This guide covers common issues and solutions for the ESP32 Presence Detection S
 
 **Check:**
 1. Ensure the device is connected to WiFi (LED should not be blinking blue)
-2. Find the IP address in Serial Monitor output
-3. Try accessing by IP address directly (not mDNS)
-4. Ensure your computer is on the same WiFi network as the device
+2. Enable service mode with a short BOOT press (purple blinking LED)
+3. Find the IP address in Serial Monitor output
+4. Try accessing by IP address directly (not mDNS)
+5. Ensure your computer is on the same WiFi network as the device
 
 **Solutions:**
 - Disable any VPN on your computer
@@ -181,6 +181,7 @@ This guide covers common issues and solutions for the ESP32 Presence Detection S
 
 **Solutions:**
 - Manually navigate to `http://192.168.4.1`
+- Wait a few seconds for WiFi scan results; the setup page auto-refreshes while scanning
 - Try opening any non-HTTPS website (like `http://example.com`) — it should redirect
 - On Android: tap the notification that appears after connecting ("Sign in to network")
 - On Windows: a browser window should open automatically; if not, try `http://192.168.4.1`

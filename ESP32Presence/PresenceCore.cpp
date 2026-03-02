@@ -1,5 +1,29 @@
 #include "PresenceCore.h"
 
+namespace {
+bool isValidHexChar(char c) {
+  return (c >= '0' && c <= '9') ||
+         (c >= 'A' && c <= 'F') ||
+         (c >= 'a' && c <= 'f');
+}
+
+String normalizedInsteonAddr(const String& addr) {
+  String hex = addr;
+  hex.replace(".", "");
+  hex.toUpperCase();
+  return hex;
+}
+
+bool isValidInsteonAddressFormat(const String& addr) {
+  String hex = normalizedInsteonAddr(addr);
+  if (hex.length() != 6) return false;
+  for (size_t i = 0; i < hex.length(); i++) {
+    if (!isValidHexChar(hex.charAt(i))) return false;
+  }
+  return true;
+}
+}  // namespace
+
 /*
  * ================================================================
  * SECTION: UTILITY FUNCTIONS
@@ -203,15 +227,14 @@ bool requireAuth() {
  */
 
 /*
- * generateDeviceSSID - Generate unique SSID from last 4 MAC chars.
+ * generateDeviceSSID - Generate unique SSID from chip MAC suffix.
  * Format: Presence_XXXX
  */
 void generateDeviceSSID() {
-  // Need WiFi initialized for MAC address; use AP mode MAC
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
+  // Use eFuse MAC to avoid 00:00 suffixes when WiFi stack is not fully ready.
+  uint64_t chipMac = ESP.getEfuseMac();
   char suffix[5];
-  sprintf(suffix, "%02X%02X", mac[4], mac[5]);
+  sprintf(suffix, "%04X", (uint16_t)(chipMac & 0xFFFF));
   deviceSSID = "Presence_" + String(suffix);
 }
 
@@ -271,7 +294,7 @@ void loadConfiguration() {
 
   integrationConfigured = false;
   if (integrationMode == "isy")         integrationConfigured = isyConfigured;
-  if (integrationMode == "insteon_hub") integrationConfigured = (insteonHubIP != "" && insteonHubUser != "" && insteonHubAddr != "");
+  if (integrationMode == "insteon_hub") integrationConfigured = (insteonHubIP != "" && insteonHubPort != "" && insteonHubUser != "" && insteonHubPass != "" && insteonHubAddr != "");
   if (integrationMode == "ha")         integrationConfigured = (haIP != "" && haToken != "" && haEntityId != "");
   if (integrationMode == "homekit")    integrationConfigured = true;
 
@@ -284,6 +307,21 @@ void loadConfiguration() {
     Serial.print(F("  Timeout: ")); Serial.print(noDetectionTimeout); Serial.println(F("s"));
     Serial.print(F("  Admin password: ")); Serial.println(adminPasswordSet ? "Set" : "NOT SET");
     Serial.print(F("  Custom pins: ")); Serial.println(useCustomPins ? "Yes" : "No");
+    if (integrationMode == "insteon_hub") {
+      Serial.print(F("  Hub endpoint: "));
+      Serial.print(insteonHubIP);
+      Serial.print(F(":"));
+      Serial.println(insteonHubPort);
+      Serial.print(F("  Hub username: "));
+      Serial.println(insteonHubUser == "" ? "(not set)" : "(set)");
+      Serial.print(F("  Hub password: "));
+      Serial.println(insteonHubPass == "" ? "NOT SET" : "Set");
+      Serial.print(F("  Hub address: "));
+      Serial.print(insteonHubAddr);
+      Serial.print(F(" ("));
+      Serial.print(isValidInsteonAddressFormat(insteonHubAddr) ? "valid" : "invalid");
+      Serial.println(F(" format)"));
+    }
   }
 }
 
@@ -333,9 +371,21 @@ void saveConfiguration() {
 
   integrationConfigured = false;
   if (integrationMode == "isy")         integrationConfigured = isyConfigured;
-  if (integrationMode == "insteon_hub") integrationConfigured = (insteonHubIP != "" && insteonHubUser != "" && insteonHubAddr != "");
+  if (integrationMode == "insteon_hub") integrationConfigured = (insteonHubIP != "" && insteonHubPort != "" && insteonHubUser != "" && insteonHubPass != "" && insteonHubAddr != "");
   if (integrationMode == "ha")         integrationConfigured = (haIP != "" && haToken != "" && haEntityId != "");
   if (integrationMode == "homekit")    integrationConfigured = true;
+
+  if (integrationMode == "insteon_hub") {
+    serialPrintln("Insteon Hub config status: " + String(integrationConfigured ? "READY" : "INCOMPLETE"));
+    if (insteonHubIP == "") serialPrintln(F("Insteon Hub missing field: IP"));
+    if (insteonHubPort == "") serialPrintln(F("Insteon Hub missing field: Port"));
+    if (insteonHubUser == "") serialPrintln(F("Insteon Hub missing field: Username"));
+    if (insteonHubPass == "") serialPrintln(F("Insteon Hub missing field: Password"));
+    if (insteonHubAddr == "") serialPrintln(F("Insteon Hub missing field: Device address"));
+    if (insteonHubAddr != "" && !isValidInsteonAddressFormat(insteonHubAddr)) {
+      serialPrintln("Insteon Hub invalid device address format: " + insteonHubAddr + " (expected AA.BB.CC)");
+    }
+  }
 
   serialPrintln(F("Configuration saved!"));
 }

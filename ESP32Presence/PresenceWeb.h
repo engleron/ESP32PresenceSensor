@@ -6,6 +6,7 @@ void sendPageStart(const String& title, const String& extraHead = "");
 void sendPageEnd();
 void sendNavBar();
 String scanWiFiNetworks();
+void startWiFiScanAsync();
 void handleCaptivePortal();
 void sendIntegrationSection(bool isSetup);
 void handleSetupRoot();

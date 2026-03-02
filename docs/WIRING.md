@@ -80,7 +80,7 @@ ESP32-DevKitC-32E          LD2410C Sensor
 │  GPIO4  ─────────┼───────┼── OUT           │
 │                  │       │                 │
 │  GPIO16 → [Built-in RGB LED]               │
-│  GPIO0  → [BOOT button - Factory Reset]    │
+│  GPIO0  → [BOOT button - Service/Reset]    │
 │                  │       │                 │
 └──────────────────┘       └─────────────────┘
 ```
@@ -123,10 +123,17 @@ ESP32-S3 Dev Board         LD2410C Sensor
 │  GPIO4  ─────────┼───────┼── OUT           │
 │                  │       │                 │
 │  GPIO48 → [Built-in RGB LED]               │
-│  BOOT   → [BOOT button - Factory Reset]    │
+│  BOOT   → [BOOT button - Service/Reset]    │
 │                  │       │                 │
 └──────────────────┘       └─────────────────┘
 ```
+
+---
+
+### BOOT Button Behavior
+
+- **Short press:** Toggle service mode (LAN web/OTA access, purple blinking LED)
+- **Hold 5 seconds:** Factory reset (clears configuration)
 
 ---
 

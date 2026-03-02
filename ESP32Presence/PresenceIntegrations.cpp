@@ -1,5 +1,90 @@
 #include "PresenceIntegrations.h"
 #include "PresenceCore.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+namespace {
+bool isValidHexChar(char c) {
+  return (c >= '0' && c <= '9') ||
+         (c >= 'A' && c <= 'F') ||
+         (c >= 'a' && c <= 'f');
+}
+
+bool isValidInsteonHexAddress(const String& hex) {
+  if (hex.length() != 6) return false;
+  for (size_t i = 0; i < hex.length(); i++) {
+    if (!isValidHexChar(hex.charAt(i))) return false;
+  }
+  return true;
+}
+
+TaskHandle_t gIntegrationWorkerHandle = nullptr;
+volatile bool gInsteonDesiredOn = false;
+volatile bool gInsteonCommandQueued = false;
+volatile bool gInsteonCommandInFlight = false;
+volatile unsigned long gInsteonNextAllowedAttemptMs = 0;
+
+bool timeReached(unsigned long now, unsigned long target) {
+  return (long)(now - target) >= 0;
+}
+
+int sendInsteonHttpGet(const String& url) {
+  HTTPClient http;
+  http.setConnectTimeout(INSTEON_HTTP_CONNECT_TIMEOUT_MS);
+  http.setTimeout(INSTEON_HTTP_TIMEOUT_MS);
+  http.begin(url);
+  http.addHeader("Connection", "close");
+  http.setAuthorization(insteonHubUser.c_str(), insteonHubPass.c_str());
+  int code = http.GET();
+  http.end();
+  return code;
+}
+
+bool clearInsteonHubBuffer() {
+  String clearUrl = "http://" + insteonHubIP + ":" + insteonHubPort + "/1?XB=M=1";
+  int clearCode = sendInsteonHttpGet(clearUrl);
+  if (clearCode <= 0) {
+    serialPrintln("Insteon Hub clear-buffer failed: " + HTTPClient::errorToString(clearCode) + " (" + String(clearCode) + ")");
+    return false;
+  }
+  serialPrintln("Insteon Hub clear-buffer HTTP: " + String(clearCode));
+  return (clearCode == 200);
+}
+
+void integrationWorkerTask(void*) {
+  for (;;) {
+    if (configMode) {
+      gInsteonCommandQueued = false;
+      gInsteonNextAllowedAttemptMs = 0;
+      vTaskDelay(pdMS_TO_TICKS(25));
+      continue;
+    }
+
+    if (integrationMode == "insteon_hub" && integrationConfigured && gInsteonCommandQueued && !gInsteonCommandInFlight) {
+      unsigned long now = millis();
+      if (timeReached(now, gInsteonNextAllowedAttemptMs)) {
+        bool desired = gInsteonDesiredOn;
+        gInsteonCommandQueued = false;
+        gInsteonCommandInFlight = true;
+
+        bool ok = sendInsteonHubCommand(desired);
+        gInsteonCommandInFlight = false;
+
+        if (ok) {
+          lightOn = desired;
+          gInsteonNextAllowedAttemptMs = 0;
+          serialPrintln("Light state set to " + String(desired ? "ON" : "OFF"));
+        } else {
+          gInsteonDesiredOn = desired;
+          gInsteonCommandQueued = true;
+          gInsteonNextAllowedAttemptMs = millis() + LIGHT_COMMAND_RETRY_INTERVAL_MS;
+        }
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(25));
+  }
+}
+}  // namespace
 
 
 /*
@@ -100,27 +185,57 @@ String insteonAddrToHex(const String& addr) {
  * @return true if HTTP 200 received
  */
 bool sendInsteonHubCommand(bool on) {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    serialPrintln(F("Insteon Hub command skipped: WiFi not connected"));
+    return false;
+  }
+  if (insteonHubIP == "" || insteonHubPort == "" || insteonHubUser == "" || insteonHubPass == "" || insteonHubAddr == "") {
+    serialPrintln(F("Insteon Hub command skipped: configuration incomplete (need IP/port/user/pass/address)"));
+    return false;
+  }
+
   String hex = insteonAddrToHex(insteonHubAddr);
-  String cmd = on ? "11" : "13";
+  if (!isValidInsteonHexAddress(hex)) {
+    serialPrintln("Insteon Hub command skipped: invalid device address format '" + insteonHubAddr + "' (expected AA.BB.CC)");
+    return false;
+  }
 
-  HTTPClient http;
-  // Step 1: clear hub receive buffer
-  String clearUrl = "http://" + insteonHubIP + ":" + insteonHubPort + "/1?XB=M=1";
-  http.begin(clearUrl);
-  http.setAuthorization(insteonHubUser.c_str(), insteonHubPass.c_str());
-  http.GET();
-  http.end();
+  String cmd1 = on ? "11" : "13";
+  String cmd2 = on ? "FF" : "00";
+  String action = on ? "ON" : "OFF";
+  serialPrintln("Insteon Hub: sending " + action + " to " + insteonHubAddr + " via " + insteonHubIP + ":" + insteonHubPort);
 
-  // Step 2: send command
+  // Direct send first; clear-buffer retry only on failure.
   String cmdUrl = "http://" + insteonHubIP + ":" + insteonHubPort +
-                  "/3?0262" + hex + "0F" + cmd + "=I=3";
-  http.begin(cmdUrl);
-  http.setAuthorization(insteonHubUser.c_str(), insteonHubPass.c_str());
-  int code = http.GET();
-  http.end();
-  verbosePrint("Insteon Hub response: " + String(code));
-  return (code == 200);
+                  "/3?0262" + hex + "0F" + cmd1 + cmd2 + "=I=3";
+  int code = sendInsteonHttpGet(cmdUrl);
+  if (code == 200) {
+    serialPrintln("Insteon Hub command accepted (HTTP 200): " + action);
+    return true;
+  }
+
+  if (code <= 0) {
+    serialPrintln("Insteon Hub command attempt 1 transport error: " + HTTPClient::errorToString(code) + " (" + String(code) + ")");
+  } else {
+    serialPrintln("Insteon Hub command attempt 1 failed: HTTP " + String(code));
+  }
+
+  clearInsteonHubBuffer();
+  delay(INSTEON_INTER_REQUEST_DELAY_MS);
+  delay(INSTEON_RETRY_DELAY_MS);
+
+  code = sendInsteonHttpGet(cmdUrl);
+  if (code == 200) {
+    serialPrintln("Insteon Hub command accepted (HTTP 200) after retry: " + action);
+    return true;
+  }
+
+  if (code <= 0) {
+    serialPrintln("Insteon Hub command failed: " + HTTPClient::errorToString(code) + " (" + String(code) + ")");
+  } else {
+    serialPrintln("Insteon Hub command failed: HTTP " + String(code));
+  }
+  return false;
 }
 
 /*
@@ -160,28 +275,89 @@ bool sendHACommand(bool on) {
   return success;
 }
 
+void initIntegrationWorker() {
+  if (gIntegrationWorkerHandle != nullptr) return;
+  BaseType_t ok = xTaskCreatePinnedToCore(
+    integrationWorkerTask,
+    "integrationWorker",
+    8192,
+    nullptr,
+    1,
+    &gIntegrationWorkerHandle,
+    0
+  );
+  if (ok == pdPASS) {
+    serialPrintln(F("Integration worker task started"));
+  } else {
+    serialPrintln(F("Integration worker task failed to start"));
+  }
+}
+
 /*
  * controlLight - Decide whether to turn the light on or off based on presence.
  * Dispatches to the configured integration (ISY, Insteon Hub, or Home Assistant).
  */
 void controlLight() {
-  if (!integrationConfigured) return;
+  static bool loggedDisabled = false;
+  static unsigned long lastAttemptMs = 0;
+  static bool lastAttemptWasOn = false;
+  const unsigned long retryIntervalMs = LIGHT_COMMAND_RETRY_INTERVAL_MS;
+
+  if (!integrationConfigured) {
+    if (integrationMode != "none" && !loggedDisabled) {
+      serialPrintln("Light control disabled: integration '" + integrationMode + "' is not fully configured");
+      loggedDisabled = true;
+    }
+    return;
+  }
+  loggedDisabled = false;
+
   if (integrationMode == "homekit") return;  // HomeKit pushes state changes in loop()
 
   bool shouldBeOn = presenceDetected ||
     (millis() - lastDetectionTime < (unsigned long)noDetectionTimeout * 1000UL);
+  if (integrationMode == "insteon_hub") {
+    if (shouldBeOn == lightOn && !gInsteonCommandQueued && !gInsteonCommandInFlight) return;
+    if ((gInsteonCommandQueued || gInsteonCommandInFlight) && gInsteonDesiredOn == shouldBeOn) return;
+
+    gInsteonDesiredOn = shouldBeOn;
+    gInsteonCommandQueued = true;
+    gInsteonNextAllowedAttemptMs = millis();
+    serialPrintln("Light control queued: " + String(shouldBeOn ? "ON" : "OFF") + " via insteon_hub");
+    return;
+  }
+
   if (shouldBeOn == lightOn) return;
+
+  unsigned long now = millis();
+  if ((now - lastAttemptMs) < retryIntervalMs && lastAttemptWasOn == shouldBeOn) {
+    return;
+  }
+  lastAttemptMs = now;
+  lastAttemptWasOn = shouldBeOn;
+
+  serialPrintln("Light control request: " + String(shouldBeOn ? "ON" : "OFF") + " via " + integrationMode);
 
   bool ok = false;
   if (shouldBeOn) {
     if      (integrationMode == "isy")         { turnLightOn();  return; }
-    else if (integrationMode == "insteon_hub") ok = sendInsteonHubCommand(true);
     else if (integrationMode == "ha")          ok = sendHACommand(true);
-    if (ok) lightOn = true;
+    if (ok) {
+      lightOn = true;
+      lastAttemptMs = 0;
+      serialPrintln(F("Light state set to ON"));
+    } else {
+      serialPrintln("Light ON command failed via " + integrationMode);
+    }
   } else {
     if      (integrationMode == "isy")         { turnLightOff(); return; }
-    else if (integrationMode == "insteon_hub") ok = sendInsteonHubCommand(false);
     else if (integrationMode == "ha")          ok = sendHACommand(false);
-    if (ok) lightOn = false;
+    if (ok) {
+      lightOn = false;
+      lastAttemptMs = 0;
+      serialPrintln(F("Light state set to OFF"));
+    } else {
+      serialPrintln("Light OFF command failed via " + integrationMode);
+    }
   }
 }

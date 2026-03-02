@@ -8,4 +8,5 @@ void turnLightOff();
 String insteonAddrToHex(const String& addr);
 bool sendInsteonHubCommand(bool on);
 bool sendHACommand(bool on);
+void initIntegrationWorker();
 void controlLight();

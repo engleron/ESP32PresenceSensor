@@ -3,6 +3,17 @@
 #include "PresenceIntegrations.h"
 #include "PresenceWeb.h"
 
+namespace {
+bool runModeServicesActive = false;
+bool runModeWebHandlersConfigured = false;
+bool otaCallbacksConfigured = false;
+bool serviceModeActive = false;
+}  // namespace
+
+void stopRunModeServices();
+bool startRunModeServices(bool asServiceMode);
+void toggleServiceMode();
+
 
 /*
  * ================================================================
@@ -22,6 +33,17 @@ void blinkBlueHeartbeat() {
 }
 
 /*
+ * blinkPurpleHeartbeat - Blink purple LED at 1-second intervals (service mode).
+ */
+void blinkPurpleHeartbeat() {
+  if (millis() - lastHeartbeat > HEARTBEAT_INTERVAL) {
+    heartbeatState = !heartbeatState;
+    lastHeartbeat  = millis();
+    setRGB(heartbeatState ? 255 : 0, 0, heartbeatState ? 255 : 0);
+  }
+}
+
+/*
  * blinkRedBlue - Alternate red/blue at 500ms intervals (error state).
  */
 void blinkRedBlue() {
@@ -35,6 +57,25 @@ void blinkRedBlue() {
 }
 
 /*
+ * pulseRedWarning - Pulse red LED during final-minute no-presence warning.
+ * Pulse speeds up every 15 seconds as timeout approaches.
+ */
+void pulseRedWarning(unsigned long remainingMs) {
+  unsigned long periodMs = 1600;  // 60s..45s remaining (slow)
+  if (remainingMs <= 45000UL) periodMs = 1100;  // 45s..30s
+  if (remainingMs <= 30000UL) periodMs = 700;   // 30s..15s
+  if (remainingMs <= 15000UL) periodMs = 400;   // 15s..0s (fast)
+
+  unsigned long halfPeriod = periodMs / 2;
+  unsigned long phase = millis() % periodMs;
+  unsigned long ramp = (phase <= halfPeriod) ? phase : (periodMs - phase);
+
+  // Keep a visible red floor and pulse up to full red.
+  int redLevel = 32 + (int)((223UL * ramp) / halfPeriod);
+  setRGB(redLevel, 0, 0);
+}
+
+/*
  * updateLED - Set LED color based on current sensor state.
  */
 void updateLED() {
@@ -43,24 +84,44 @@ void updateLED() {
 
   if (sensorError) {
     blinkRedBlue();
-    state = 4;
+    state = 5;  // reserved for sensor error
   } else if (presenceDetected) {
-    if (isMoving) {
-      setRGB(0, 255, 0);  // Green: movement
-      state = 1;
+    setRGB(0, 255, 0);  // Green: presence
+    state = 1;
+  } else {
+    unsigned long remainingMs = 0;
+    bool warningState = false;
+    if (lightOn && noDetectionTimeout > 0) {
+      unsigned long timeoutMs = (unsigned long)noDetectionTimeout * 1000UL;
+      unsigned long elapsedMs = millis() - lastDetectionTime;
+      if (elapsedMs < timeoutMs) {
+        remainingMs = timeoutMs - elapsedMs;
+        warningState = (remainingMs <= 60000UL);
+      }
+    }
+
+    if (!lightOn) {
+      setRGB(255, 0, 0);  // Red: no presence, light is off
+      state = 3;
+    } else if (warningState) {
+      pulseRedWarning(remainingMs);  // Red pulse: no presence warning (light-off imminent)
+      state = 4;
     } else {
-      setRGB(255, 255, 0);  // Yellow: static
+      setRGB(255, 255, 0);  // Yellow: no presence, light still on
       state = 2;
     }
-  } else {
-    setRGB(255, 0, 0);  // Red: no presence
-    state = 3;
   }
 
-  if (state != prevState && state != 4) {
+  if (state != prevState && state != 5) {
     prevState = state;
-    const char* msgs[] = {"", "GREEN (movement)", "YELLOW (static)", "RED (no presence)"};
-    if (state >= 1 && state <= 3) {
+    const char* msgs[] = {
+      "",
+      "GREEN (presence)",
+      "YELLOW (no presence)",
+      "RED (no presence, light off)",
+      "RED PULSE (no presence warning)"
+    };
+    if (state >= 1 && state <= 4) {
       serialPrintln("LED: " + String(msgs[state]));
     }
   }
@@ -83,12 +144,12 @@ void readSensorData() {
     lastDetectionTime = millis();
     sensorError = false;
 
-    // Alternate movement/static detection every 30 seconds (OUT pin only gives presence, not type)
-    // Full UART parsing would give exact type; this provides a reasonable simulation
-    isMoving = ((millis() / 30000) % 2 == 0);
+    // OUT pin only reports presence (HIGH/LOW). Keep this legacy flag true
+    // while present for API backward compatibility.
+    isMoving = true;
 
     if (millis() - lastStatusPrint > 2000) {
-      verbosePrint("Presence detected: " + String(isMoving ? "MOVING" : "STATIC"));
+      verbosePrint(F("Presence detected: PRESENT"));
       lastStatusPrint = millis();
     }
   } else {
@@ -127,7 +188,7 @@ bool checkResetButton() {
 /*
  * checkResetButtonHeld - Monitor BOOT button for 5-second factory reset.
  * Provides staged LED visual feedback during hold.
- * @return true if factory reset was performed
+ * @return true only if factory reset was performed (device restarts)
  */
 bool checkResetButtonHeld() {
   static unsigned long pressStartTime = 0;
@@ -140,8 +201,16 @@ bool checkResetButtonHeld() {
     wasPressed = true;
     serialPrintln(F("BOOT button pressed - hold 5 seconds for factory reset"));
   } else if (!isPressed && wasPressed) {
+    unsigned long held = millis() - pressStartTime;
     wasPressed = false;
     setRGB(0, 0, 0);
+    if (held >= 80 && held < RESET_HOLD_TIME) {
+      if (!configMode) {
+        serialPrintln(F("BOOT short press - toggling service mode"));
+        toggleServiceMode();
+      }
+      return false;
+    }
     serialPrintln(F("BOOT button released"));
   } else if (isPressed && wasPressed) {
     unsigned long held = millis() - pressStartTime;
@@ -202,12 +271,94 @@ bool checkResetButtonHeld() {
  * ================================================================
  */
 
+void stopRunModeServices() {
+  if (!runModeServicesActive) {
+    serviceModeActive = false;
+    return;
+  }
+
+  server.stop();
+  MDNS.end();
+  runModeServicesActive = false;
+  serviceModeActive = false;
+  serialPrintln(F("Run-mode web services stopped"));
+}
+
+bool startRunModeServices(bool asServiceMode) {
+  if (runModeServicesActive) {
+    serviceModeActive = asServiceMode;
+    if (asServiceMode) {
+      heartbeatState = true;
+      lastHeartbeat = millis();
+      setRGB(255, 0, 255);
+    }
+    return true;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    serialPrintln(F("Cannot start run-mode web services: WiFi not connected"));
+    return false;
+  }
+
+  if (!runModeWebHandlersConfigured) {
+    // esp32 Arduino core 3.x changed collectHeaders to require an array + count
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    const char* collectHeaderKeys[] = {"Cookie"};
+    server.collectHeaders(collectHeaderKeys, 1);
+#else
+    server.collectHeaders("Cookie");
+#endif
+    setupWebServerRunMode();
+    runModeWebHandlersConfigured = true;
+  }
+
+  if (MDNS.begin("presence")) {
+    serialPrintln(F("mDNS started: http://presence.local"));
+  }
+
+  if (!otaCallbacksConfigured) {
+    ArduinoOTA.setHostname("esp32-presence");
+    ArduinoOTA.onStart([]() { serialPrintln(F("OTA update started...")); });
+    ArduinoOTA.onEnd([]()   { serialPrintln(F("OTA update complete!")); });
+    ArduinoOTA.onError([](ota_error_t error) {
+      serialPrintln("OTA error: " + String(error));
+    });
+    otaCallbacksConfigured = true;
+  }
+  ArduinoOTA.begin();
+  server.begin();
+
+  runModeServicesActive = true;
+  serviceModeActive = asServiceMode;
+
+  if (asServiceMode) {
+    heartbeatState = true;
+    lastHeartbeat = millis();
+    setRGB(255, 0, 255);
+    serialPrintln("Service mode enabled (LAN web): http://" + WiFi.localIP().toString());
+  } else {
+    serialPrintln(F("Run-mode web services enabled"));
+  }
+  return true;
+}
+
+void toggleServiceMode() {
+  if (serviceModeActive) {
+    stopRunModeServices();
+    serialPrintln(F("Service mode disabled - returning to run mode"));
+    return;
+  }
+  if (startRunModeServices(true)) {
+    serialPrintln(F("Service mode active - BOOT short press again to exit"));
+  }
+}
+
 /*
  * enterConfigMode - Start AP and captive portal for initial setup.
  */
 void enterConfigMode() {
   serialPrintln(F("\n*** ENTERING SETUP MODE ***"));
 
+  stopRunModeServices();
   configMode = true;
 
   // Force immediate visual setup indication (steady blue, then heartbeat).
@@ -219,6 +370,8 @@ void enterConfigMode() {
   generateDeviceSSID();
 
   WiFi.softAP(deviceSSID.c_str());
+  startWiFiScanAsync();
+  serialPrintln(F("Setup mode WiFi scan started"));
 
   IPAddress apIP = WiFi.softAPIP();
 
@@ -248,11 +401,20 @@ void connectToWiFi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
 
-  int timeout = 30;
-  while (WiFi.status() != WL_CONNECTED && timeout > 0) {
-    delay(1000);
-    if (Serial && debugLevel > 0) Serial.print(".");
-    timeout--;
+  const unsigned long connectTimeoutMs = 30000;
+  const unsigned long dotIntervalMs    = 1000;
+  unsigned long connectStart           = millis();
+  unsigned long lastDotAt              = connectStart;
+
+  while (WiFi.status() != WL_CONNECTED && (millis() - connectStart) < connectTimeoutMs) {
+    delay(100);
+    // setup() can block here for up to 30s; feed TWDT while waiting for association
+    esp_task_wdt_reset();
+
+    if (Serial && debugLevel > 0 && (millis() - lastDotAt) >= dotIntervalMs) {
+      Serial.print(".");
+      lastDotAt = millis();
+    }
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -261,40 +423,12 @@ void connectToWiFi() {
     serialPrint(F("IP Address: "));
     serialPrintln(WiFi.localIP().toString());
 
-    // Start mDNS
-    if (MDNS.begin("presence")) {
-      serialPrintln(F("mDNS started: http://presence.local"));
-    }
-
-    // Start OTA
-    ArduinoOTA.setHostname("esp32-presence");
-    ArduinoOTA.onStart([]() { serialPrintln(F("OTA update started...")); });
-    ArduinoOTA.onEnd([]()   { serialPrintln(F("OTA update complete!")); });
-    ArduinoOTA.onError([](ota_error_t error) {
-      serialPrintln("OTA error: " + String(error));
-    });
-    ArduinoOTA.begin();
-    serialPrintln(F("OTA updates enabled"));
-
-    // Green flash to confirm connection
-    for (int i = 0; i < 3; i++) {
-      setRGB(0, 255, 0);
-      delay(200);
-      setRGB(0, 0, 0);
-      delay(200);
-    }
-
-    // Setup authenticated web server
-    // esp32 Arduino core 3.x changed collectHeaders to require an array + count
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
-    const char* collectHeaderKeys[] = {"Cookie"};
-    server.collectHeaders(collectHeaderKeys, 1);
+#if ENABLE_RUNMODE_WEB_OTA_DEFAULT
+    startRunModeServices(false);
 #else
-    server.collectHeaders("Cookie");
+    serialPrintln(F("Run mode active (web disabled by default)"));
+    serialPrintln(F("Press BOOT briefly to toggle LAN web service mode"));
 #endif
-    setupWebServerRunMode();
-    server.begin();
-    serialPrintln(F("Web server started"));
 
   } else {
     Serial.println();
@@ -351,19 +485,37 @@ void presenceInit() {
   // Initialize sensor OUT pin
   pinMode(pinSensorOut, INPUT);
 
+  // Integration worker handles potentially blocking network actions off the main loop
+  initIntegrationWorker();
+
   // Start watchdog timer
   // esp32 Arduino core 3.x changed esp_task_wdt_init to take a config struct
+  esp_err_t wdtInitResult = ESP_OK;
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   esp_task_wdt_config_t wdtConfig = {
     .timeout_ms   = WDT_TIMEOUT_SECONDS * 1000,
     .idle_core_mask = 0,
     .trigger_panic  = true
   };
-  esp_task_wdt_init(&wdtConfig);
+  // On Arduino-ESP32 3.x, TWDT may already be initialized by the core.
+  // Reconfigure first to avoid "already initialized" boot errors.
+  wdtInitResult = esp_task_wdt_reconfigure(&wdtConfig);
+  if (wdtInitResult == ESP_ERR_INVALID_STATE) {
+    wdtInitResult = esp_task_wdt_init(&wdtConfig);
+  }
 #else
-  esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true);
+  wdtInitResult = esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true);
 #endif
-  esp_task_wdt_add(NULL);
+  if (wdtInitResult != ESP_OK) {
+    serialPrintln("Watchdog init warning, err=" + String((int)wdtInitResult));
+  }
+
+  esp_err_t wdtAddResult = esp_task_wdt_add(NULL);
+  if (wdtAddResult == ESP_ERR_INVALID_ARG) {
+    serialPrintln(F("Watchdog task already registered"));
+  } else if (wdtAddResult != ESP_OK) {
+    serialPrintln("Watchdog task add warning, err=" + String((int)wdtAddResult));
+  }
   serialPrintln(F("Watchdog timer started (8s timeout)"));
 
   // Decide mode: setup or connect
@@ -374,7 +526,12 @@ void presenceInit() {
   }
 
   Serial.println(F("\n================================================"));
-  Serial.println(F("Setup complete!"));
+  if (configMode) {
+    Serial.println(F("Initialization complete: SETUP MODE ACTIVE"));
+    Serial.println(F("Open captive portal or browse http://192.168.4.1"));
+  } else {
+    Serial.println(F("Initialization complete: RUN MODE ACTIVE"));
+  }
   Serial.println(F("================================================\n"));
 }
 
@@ -392,22 +549,22 @@ void presenceTick() {
   }
 
   // Normal operation
-  ArduinoOTA.handle();
-  server.handleClient();
-
-  if (checkResetButtonHeld()) {
-    enterConfigMode();
-    return;
+  if (runModeServicesActive) {
+    ArduinoOTA.handle();
+    server.handleClient();
   }
+  checkResetButtonHeld();
 
   readSensorData();
-  updateLED();
-
-  if (integrationConfigured) {
-    controlLight();
+  if (serviceModeActive) {
+    blinkPurpleHeartbeat();
+  } else {
+    updateLED();
   }
 
-  delay(100);
+  controlLight();
+
+  delay(MAIN_LOOP_DELAY_MS);
 }
 
 void setup() {

@@ -1,11 +1,16 @@
 #pragma once
 
 // Firmware metadata
-#define FIRMWARE_VERSION "2.2.0"
+#define FIRMWARE_VERSION "2.3.0"
 
 // Compile-time feature flags
 // Uncomment to enable native HomeKit support (requires arduino-homekit-esp32 library)
 // #define ENABLE_HOMEKIT
+
+// Runtime web UI + OTA services in normal operation.
+// 0 = disabled by default for lowest control-loop latency
+// 1 = enabled in normal operation
+#define ENABLE_RUNMODE_WEB_OTA_DEFAULT 0
 
 // Hardware/IO defaults
 #define NUM_PIXELS        1
@@ -21,12 +26,20 @@
 // Timing defaults
 #define HEARTBEAT_INTERVAL      1000
 #define SENSOR_CHECK_INTERVAL   500
+#define MAIN_LOOP_DELAY_MS      30
 #define RESET_HOLD_TIME         5000
 #define SESSION_TIMEOUT_MS      (15UL * 60UL * 1000UL)
 #define LOGIN_LOCKOUT_MS        (60UL * 1000UL)
 #define MAX_LOGIN_ATTEMPTS      5
 #define STATUS_UPDATE_INTERVAL  2000
 #define WDT_TIMEOUT_SECONDS     8
+
+// Integration command timing (reduce blocking latency in control loop)
+#define LIGHT_COMMAND_RETRY_INTERVAL_MS   1200
+#define INSTEON_HTTP_CONNECT_TIMEOUT_MS   1200
+#define INSTEON_HTTP_TIMEOUT_MS           1200
+#define INSTEON_INTER_REQUEST_DELAY_MS    350
+#define INSTEON_RETRY_DELAY_MS            150
 
 // Board-specific default pin assignments
 #if defined(CONFIG_IDF_TARGET_ESP32S3)

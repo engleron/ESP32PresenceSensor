@@ -402,3 +402,8 @@ String buildConfigJson() {
   json += "  \"hub_addr\": \"" + insteonHubAddr + "\",\n";
   json += "  \"ha_ip\": \"" + haIP + "\",\n";
   json += "  \"ha_port\": \"" + haPort + "\",\n";
+  json += "  \"ha_https\": " + String(haHTTPS ? "true" : "false") + ",\n";
+  json += "  \"ha_entity\": \"" + haEntityId + "\"\n";
+  json += "}";
+  return json;
+}

@@ -62,7 +62,8 @@ extern String haPort;
 extern bool   haHTTPS;
 extern String haToken;
 extern String haEntityId;
-extern String haMode;    // "light_control" or "sensor_entity"
+extern String haMode;       // "light_control" or "sensor_entity"
+extern String haEntitySrc;  // "out_pin" or "uart"
 
 #ifdef ENABLE_HOMEKIT
 extern String homekitCode;
@@ -83,6 +84,15 @@ extern bool          lightOn;
 extern bool          sensorError;
 extern unsigned long lastDetectionTime;
 extern unsigned long lastStatusPrint;
+
+// LD2410C UART parsed data (updated by parseLD2410CSerial)
+extern uint8_t       uartTargetState;       // 0=none 1=moving 2=stationary 3=both
+extern int           uartMovingDistance;    // cm (0 when not detected)
+extern int           uartMovingEnergy;      // 0-100
+extern int           uartStationaryDistance; // cm (0 when not detected)
+extern int           uartStationaryEnergy;  // 0-100
+extern int           uartDetectionDistance; // cm
+extern unsigned long lastUartUpdateMs;      // millis() of last valid UART frame
 
 // LED/runtime state
 extern unsigned long lastHeartbeat;

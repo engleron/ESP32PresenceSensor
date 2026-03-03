@@ -37,12 +37,13 @@ String insteonHubPass = "";
 String insteonHubAddr = "";
 
 // Home Assistant settings
-String haIP       = "";
-String haPort     = DEFAULT_HA_PORT;
-bool   haHTTPS    = false;
-String haToken    = "";
-String haEntityId = "";
-String haMode     = "light_control";  // "light_control" or "sensor_entity"
+String haIP        = "";
+String haPort      = DEFAULT_HA_PORT;
+bool   haHTTPS     = false;
+String haToken     = "";
+String haEntityId  = "";
+String haMode      = "light_control";  // "light_control" or "sensor_entity"
+String haEntitySrc = "out_pin";        // "out_pin" or "uart"
 
 #ifdef ENABLE_HOMEKIT
 String homekitCode = "11122333";
@@ -63,6 +64,15 @@ bool          lightOn            = false;
 bool          sensorError        = false;
 unsigned long lastDetectionTime  = 0;
 unsigned long lastStatusPrint    = 0;
+
+// LD2410C UART parsed data
+uint8_t       uartTargetState        = 0;
+int           uartMovingDistance     = 0;
+int           uartMovingEnergy       = 0;
+int           uartStationaryDistance = 0;
+int           uartStationaryEnergy   = 0;
+int           uartDetectionDistance  = 0;
+unsigned long lastUartUpdateMs       = 0;
 
 // LED/runtime state
 unsigned long lastHeartbeat  = 0;

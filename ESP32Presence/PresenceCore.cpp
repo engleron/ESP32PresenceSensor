@@ -281,6 +281,7 @@ void loadConfiguration() {
   haHTTPS         = preferences.getBool("ha_https",    false);
   haToken         = preferences.getString("ha_token",  "");
   haEntityId      = preferences.getString("ha_entity", "");
+  haMode          = preferences.getString("ha_mode",   "light_control");
 #ifdef ENABLE_HOMEKIT
   homekitCode     = preferences.getString("hk_code",   "11122333");
 #endif
@@ -360,6 +361,7 @@ void saveConfiguration() {
   preferences.putBool("ha_https",     haHTTPS);
   preferences.putString("ha_token",   haToken);
   preferences.putString("ha_entity",  haEntityId);
+  preferences.putString("ha_mode",    haMode);
 #ifdef ENABLE_HOMEKIT
   preferences.putString("hk_code",    homekitCode);
 #endif
@@ -417,6 +419,7 @@ void clearConfiguration() {
   haIP = haToken = haEntityId = "";
   haPort = DEFAULT_HA_PORT;
   haHTTPS = false;
+  haMode = "light_control";
 #ifdef ENABLE_HOMEKIT
   homekitCode = "11122333";
 #endif
@@ -453,7 +456,8 @@ String buildConfigJson() {
   json += "  \"ha_ip\": \"" + haIP + "\",\n";
   json += "  \"ha_port\": \"" + haPort + "\",\n";
   json += "  \"ha_https\": " + String(haHTTPS ? "true" : "false") + ",\n";
-  json += "  \"ha_entity\": \"" + haEntityId + "\"\n";
+  json += "  \"ha_entity\": \"" + haEntityId + "\",\n";
+  json += "  \"ha_mode\": \"" + haMode + "\"\n";
   json += "}";
   return json;
 }

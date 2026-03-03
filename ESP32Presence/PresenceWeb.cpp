@@ -178,6 +178,8 @@ void sendIntegrationSection(bool isSetup) {
   String selHA   = (integrationMode == "ha")          ? " selected" : "";
   String httpsChecked   = useHTTPS ? " checked" : "";
   String haHTTPSChecked = haHTTPS  ? " checked" : "";
+  String selHALight  = (haMode == "light_control") ? " selected" : "";
+  String selHASensor = (haMode == "sensor_entity")  ? " selected" : "";
 
   server.sendContent(
     "<h2>Integration (Optional)</h2>"
@@ -282,6 +284,16 @@ void sendIntegrationSection(bool isSetup) {
   server.sendContent(
     "<div id='sect_ha'>"
     "<h2>Home Assistant Settings</h2>"
+    "<label for='ha_mode'>HA Mode:</label>"
+    "<select name='ha_mode' id='ha_mode' onchange='updateHAMode(this.value)'>"
+    "<option value='light_control'" + selHALight  + ">Light / Switch Control</option>"
+    "<option value='sensor_entity'"  + selHASensor + ">Sensor Entity (presence reporting)</option>"
+    "</select>"
+    "<div class='info' id='ha_mode_info_light' style='margin-top:8px'>"
+    "The sensor will turn a light or switch on/off based on presence.</div>"
+    "<div class='info' id='ha_mode_info_sensor' style='margin-top:8px'>"
+    "The sensor registers as a presence sensor entity in Home Assistant. "
+    "HA automations can react to its <strong>detected</strong> / <strong>clear</strong> state.</div>"
     "<label for='ha_ip'>HA IP Address:</label>"
     "<input type='text' name='ha_ip' id='ha_ip' value='" + haIP +
     "' placeholder='e.g., 192.168.1.200' autocomplete='off'>"
@@ -304,7 +316,7 @@ void sendIntegrationSection(bool isSetup) {
     );
   }
   server.sendContent(
-    "<label for='ha_entity'>Entity ID:</label>"
+    "<label for='ha_entity' id='ha_entity_label'>Entity ID:</label>"
     "<input type='text' name='ha_entity' id='ha_entity' value='" + haEntityId +
     "' placeholder='e.g., light.living_room' autocomplete='off'>"
     "<details><summary>Help: Home Assistant Settings</summary>"
@@ -313,8 +325,13 @@ void sendIntegrationSection(bool isSetup) {
     "<strong>Port:</strong> Default is 8123. Use 443 with HTTPS for remote/Nabu Casa.<br><br>"
     "<strong>Access Token:</strong> In HA go to Profile &rarr; Security &rarr; "
     "Long-Lived Access Tokens &rarr; Create Token.<br><br>"
+    "<span id='ha_entity_help_light'>"
     "<strong>Entity ID:</strong> The light or switch to control, e.g. light.living_room. "
-    "Find under HA Settings &rarr; Entities.</p></details>"
+    "Find under HA Settings &rarr; Entities.</span>"
+    "<span id='ha_entity_help_sensor' style='display:none'>"
+    "<strong>Entity ID:</strong> A sensor entity to create/update in HA, "
+    "e.g. sensor.office_presence. HA will create it automatically on first push.</span>"
+    "</p></details>"
     "</div>"
   );
 
@@ -345,7 +362,22 @@ void sendIntegrationSection(bool isSetup) {
     "if(el)el.style.display=(v===id)?'':'none';"
     "});"
     "}"
+    "function updateHAMode(v){"
+    "var isSensor=(v==='sensor_entity');"
+    "var infoLight=document.getElementById('ha_mode_info_light');"
+    "var infoSensor=document.getElementById('ha_mode_info_sensor');"
+    "var entityInput=document.getElementById('ha_entity');"
+    "var helpLight=document.getElementById('ha_entity_help_light');"
+    "var helpSensor=document.getElementById('ha_entity_help_sensor');"
+    "if(infoLight)infoLight.style.display=isSensor?'none':'';"
+    "if(infoSensor)infoSensor.style.display=isSensor?'':'none';"
+    "if(entityInput)entityInput.placeholder=isSensor"
+    "?'e.g., sensor.office_presence':'e.g., light.living_room';"
+    "if(helpLight)helpLight.style.display=isSensor?'none':'';"
+    "if(helpSensor)helpSensor.style.display=isSensor?'':'none';"
+    "}"
     "showIntegration(document.getElementById('integration_mode').value);"
+    "updateHAMode(document.getElementById('ha_mode')?document.getElementById('ha_mode').value:'light_control');"
     "</script>"
   );
 }
@@ -518,6 +550,8 @@ void handleSetupSave() {
   haHTTPS   = (server.arg("ha_https") == "1");
   haToken   = server.arg("ha_token"); haToken.trim();
   haEntityId = server.arg("ha_entity"); haEntityId.trim();
+  haMode    = server.arg("ha_mode");
+  if (haMode != "sensor_entity") haMode = "light_control";
 
 #ifdef ENABLE_HOMEKIT
   String hkCode = server.arg("hk_code"); hkCode.trim();
@@ -667,12 +701,24 @@ void handleStatus() {
   String integLabel = "None";
   if      (integrationMode == "isy")         integLabel = "EISY/ISY";
   else if (integrationMode == "insteon_hub") integLabel = "Insteon Hub";
+  else if (integrationMode == "ha" && haMode == "sensor_entity") integLabel = "HA Sensor Entity";
   else if (integrationMode == "ha")          integLabel = "Home Assistant";
   else if (integrationMode == "homekit")     integLabel = "HomeKit";
 
-  String lightBadge = integrationConfigured
-    ? (lightOn ? "<span class='badge badge-green'>Light ON</span>" : "<span class='badge badge-red'>Light OFF</span>")
-    : "<span class='badge' style='background:#eee;color:#888'>Not Configured</span>";
+  bool haIsSensorMode = (integrationMode == "ha" && haMode == "sensor_entity");
+  String controlCardLabel = haIsSensorMode ? "Sensor State" : "Light Control";
+  String controlBadge;
+  if (!integrationConfigured) {
+    controlBadge = "<span class='badge' style='background:#eee;color:#888'>Not Configured</span>";
+  } else if (haIsSensorMode) {
+    controlBadge = presenceDetected
+      ? "<span class='badge badge-green'>detected</span>"
+      : "<span class='badge badge-red'>clear</span>";
+  } else {
+    controlBadge = lightOn
+      ? "<span class='badge badge-green'>Light ON</span>"
+      : "<span class='badge badge-red'>Light OFF</span>";
+  }
 
   int rssi = WiFi.RSSI();
   int signalPct = wifiSignalToPercent(rssi);
@@ -680,7 +726,7 @@ void handleStatus() {
   server.sendContent(
     "<div class='stat-grid'>"
     "<div class='stat-card'><div class='stat-label'>Presence</div><div class='stat-value'>" + presenceBadge + "</div></div>"
-    "<div class='stat-card'><div class='stat-label'>Light Control</div><div class='stat-value'>" + lightBadge + "</div></div>"
+    "<div class='stat-card'><div class='stat-label'>" + controlCardLabel + "</div><div class='stat-value'>" + controlBadge + "</div></div>"
     "<div class='stat-card'><div class='stat-label'>Integration</div><div class='stat-value'>" + integLabel + "</div></div>"
     "<div class='stat-card'><div class='stat-label'>WiFi Signal</div><div class='stat-value'>" + String(signalPct) + "% (" + String(rssi) + " dBm)</div></div>"
     "<div class='stat-card'><div class='stat-label'>Uptime</div><div class='stat-value'>" + getUptimeString() + "</div></div>"
@@ -749,6 +795,8 @@ void handleConfig() {
     // Keep existing HA token if field left blank
     String haTokenArg = server.arg("ha_token");
     if (haTokenArg.length() > 0) haToken = haTokenArg;
+    haMode = server.arg("ha_mode");
+    if (haMode != "sensor_entity") haMode = "light_control";
 
 #ifdef ENABLE_HOMEKIT
     String hkCode = server.arg("hk_code"); hkCode.trim();
@@ -1021,6 +1069,7 @@ void handleApiStatus() {
   json += "  \"light_on\": " + String(lightOn ? "true" : "false") + ",\n";
   json += "  \"isy_configured\": " + String(isyConfigured ? "true" : "false") + ",\n";
   json += "  \"integration\": \"" + integrationMode + "\",\n";
+  json += "  \"ha_mode\": \"" + haMode + "\",\n";
   json += "  \"integration_configured\": " + String(integrationConfigured ? "true" : "false") + ",\n";
   json += "  \"uptime_ms\": " + String(millis()) + ",\n";
   json += "  \"free_heap\": " + String(ESP.getFreeHeap()) + ",\n";

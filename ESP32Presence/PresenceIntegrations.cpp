@@ -275,6 +275,67 @@ bool sendHACommand(bool on) {
   return success;
 }
 
+/*
+ * sendHASensorState - POST a presence state string to the HA REST state endpoint.
+ * Creates or updates a sensor entity in Home Assistant with the given state value.
+ * @param state Presence state string: "detected" or "clear"
+ * @return true if HTTP 200 or 201 received
+ */
+bool sendHASensorState(const String& state) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String url = String(haHTTPS ? "https" : "http") + "://" + haIP + ":" + haPort +
+               "/api/states/" + haEntityId;
+  String body = "{\"state\":\"" + state + "\","
+                "\"attributes\":{\"friendly_name\":\"Presence Sensor\","
+                "\"device_class\":\"motion\"}}";
+  bool success = false;
+
+  HTTPClient http;
+  if (haHTTPS) {
+    WiFiClientSecure* client = new WiFiClientSecure;
+    client->setInsecure();
+    http.begin(*client, url);
+    http.addHeader("Authorization", "Bearer " + haToken);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST(body);
+    success = (code == 200 || code == 201);
+    verbosePrint("HA sensor POST HTTPS: " + String(code));
+    http.end();
+    delete client;
+  } else {
+    http.begin(url);
+    http.addHeader("Authorization", "Bearer " + haToken);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST(body);
+    success = (code == 200 || code == 201);
+    verbosePrint("HA sensor POST HTTP: " + String(code));
+    http.end();
+  }
+  return success;
+}
+
+/*
+ * updateHASensorEntity - Push current presence state to HA as a sensor entity.
+ * Sends on state change or after republish interval to keep the entity alive.
+ */
+void updateHASensorEntity() {
+  static String lastSentState = "";
+  static unsigned long lastPublishMs = 0;
+
+  if (!integrationConfigured || WiFi.status() != WL_CONNECTED) return;
+
+  String state = presenceDetected ? "detected" : "clear";
+  unsigned long now = millis();
+
+  if (state == lastSentState && (now - lastPublishMs) < HA_SENSOR_REPUBLISH_MS) return;
+
+  if (sendHASensorState(state)) {
+    lastSentState = state;
+    lastPublishMs = now;
+    serialPrintln("HA sensor entity: " + state);
+  }
+}
+
 void initIntegrationWorker() {
   if (gIntegrationWorkerHandle != nullptr) return;
   BaseType_t ok = xTaskCreatePinnedToCore(
@@ -313,6 +374,11 @@ void controlLight() {
   loggedDisabled = false;
 
   if (integrationMode == "homekit") return;  // HomeKit pushes state changes in loop()
+
+  if (integrationMode == "ha" && haMode == "sensor_entity") {
+    updateHASensorEntity();
+    return;
+  }
 
   bool shouldBeOn = presenceDetected ||
     (millis() - lastDetectionTime < (unsigned long)noDetectionTimeout * 1000UL);

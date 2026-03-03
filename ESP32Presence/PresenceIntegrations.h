@@ -8,5 +8,7 @@ void turnLightOff();
 String insteonAddrToHex(const String& addr);
 bool sendInsteonHubCommand(bool on);
 bool sendHACommand(bool on);
+bool sendHASensorState(const String& state);
+void updateHASensorEntity();
 void initIntegrationWorker();
 void controlLight();

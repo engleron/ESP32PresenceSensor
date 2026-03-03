@@ -42,6 +42,7 @@ String haPort     = DEFAULT_HA_PORT;
 bool   haHTTPS    = false;
 String haToken    = "";
 String haEntityId = "";
+String haMode     = "light_control";  // "light_control" or "sensor_entity"
 
 #ifdef ENABLE_HOMEKIT
 String homekitCode = "11122333";

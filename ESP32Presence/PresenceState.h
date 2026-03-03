@@ -62,6 +62,7 @@ extern String haPort;
 extern bool   haHTTPS;
 extern String haToken;
 extern String haEntityId;
+extern String haMode;    // "light_control" or "sensor_entity"
 
 #ifdef ENABLE_HOMEKIT
 extern String homekitCode;

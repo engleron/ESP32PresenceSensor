@@ -247,13 +247,56 @@ Select `ha` as the Integration Mode to control a Home Assistant entity via the H
 | **Port** | Default: `8123` |
 | **Use HTTPS** | Check if your HA instance uses HTTPS |
 | **Long-Lived Access Token** | Bearer token generated in HA (Profile → Long-Lived Access Tokens) |
-| **Entity ID** | The entity to control (e.g., `light.living_room`) |
+| **Entity ID** | The entity to control or update (e.g., `light.living_room` or `sensor.office_presence`) |
+| **HA Mode** | `light_control` (default) or `sensor_entity` — see below |
+| **Sensor Data Source** | `out_pin` or `uart` — only shown when HA Mode is `sensor_entity` |
 
-### How It Works
+### HA Mode: Light Control (default)
+
+The default mode. Controls a Home Assistant `light.*` or `switch.*` entity based on presence:
 
 - Presence detected → POST to `/api/services/homeassistant/turn_on` with `{"entity_id": "..."}`
 - Timeout expires → POST to `/api/services/homeassistant/turn_off`
-- Supports HTTP and HTTPS (uses `setInsecure()` for self-signed certificates)
+
+### HA Mode: Sensor Entity
+
+Instead of controlling a light, this mode creates or updates a `sensor.*` entity in Home Assistant with presence state values. Use this when you want to build your own automations in HA based on the sensor's state.
+
+State is pushed via HTTP POST to `/api/states/{entity_id}`.
+
+#### Sensor Data Source: OUT Pin (`out_pin`)
+
+Reports binary presence via the GPIO OUT pin:
+
+| State value | Meaning |
+|-------------|---------|
+| `detected` | OUT pin is HIGH (presence detected) |
+| `clear` | OUT pin is LOW (no presence) |
+
+#### Sensor Data Source: UART (`uart`)
+
+Reports richer presence detail from the LD2410C UART data stream:
+
+| State value | Meaning |
+|-------------|---------|
+| `movement` | Moving target only |
+| `stationary` | Stationary target only |
+| `presence` | Both moving and stationary target (or OUT-pin fallback when UART is stale) |
+| `clear` | No target detected |
+
+When UART data is selected but no valid UART frames have been received within the last 3 seconds, the firmware falls back to the OUT pin and reports `presence` or `clear` to keep the state vocabulary consistent.
+
+Additional attributes are included in the HA state payload when UART data is fresh:
+- `moving_distance_cm`, `moving_energy` (0–100)
+- `stationary_distance_cm`, `stationary_energy` (0–100)
+- `detection_distance_cm`
+
+> **Note:** Wire TX/RX from the LD2410C sensor to the GPIO pins shown in the board pin table
+> (default: GPIO17/GPIO18 on ESP32, GPIO16/GPIO17 on ESP32-S3) to use UART mode.
+
+### Supports HTTP and HTTPS
+
+Both modes (light control and sensor entity) support HTTP and HTTPS. When HTTPS is selected, certificate verification is skipped (`setInsecure()`) to support self-signed certificates common in local HA installs.
 
 ### Generating a Long-Lived Access Token
 

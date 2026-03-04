@@ -290,8 +290,7 @@ bool sendHASensorState(const String& state) {
 
   // Base attributes always included.
   String body = "{\"state\":\"" + state + "\","
-                "\"attributes\":{\"friendly_name\":\"Presence Sensor\","
-                "\"device_class\":\"motion\"";
+                "\"attributes\":{\"friendly_name\":\"Presence Sensor\"";
 
   // Append LD2410C UART detail attributes when available and fresh (< 3 s old).
   bool uartFresh = (haEntitySrc == "uart" &&
@@ -309,16 +308,15 @@ bool sendHASensorState(const String& state) {
   bool success = false;
   HTTPClient http;
   if (haHTTPS) {
-    WiFiClientSecure* client = new WiFiClientSecure;
-    client->setInsecure();
-    http.begin(*client, url);
+    WiFiClientSecure client;
+    client.setInsecure();
+    http.begin(client, url);
     http.addHeader("Authorization", "Bearer " + haToken);
     http.addHeader("Content-Type", "application/json");
     int code = http.POST(body);
     success = (code == 200 || code == 201);
     verbosePrint("HA sensor POST HTTPS: " + String(code));
     http.end();
-    delete client;
   } else {
     http.begin(url);
     http.addHeader("Authorization", "Bearer " + haToken);
@@ -336,7 +334,8 @@ bool sendHASensorState(const String& state) {
  * Sends on state change or after republish interval to keep the entity alive.
  *
  * haEntitySrc == "uart": reports "movement" | "stationary" | "presence" | "clear"
- *   derived from LD2410C UART data; falls back to OUT-pin if UART is stale.
+ *   derived from LD2410C UART data; falls back to OUT-pin as "presence" | "clear"
+ *   when UART is stale so state vocabulary stays consistent.
  * haEntitySrc == "out_pin": reports "detected" | "clear" from GPIO OUT pin.
  */
 void updateHASensorEntity() {
@@ -349,8 +348,8 @@ void updateHASensorEntity() {
   if (haEntitySrc == "uart") {
     bool uartFresh = (lastUartUpdateMs > 0 && (millis() - lastUartUpdateMs) < 3000UL);
     if (!uartFresh) {
-      // UART not connected or stale — fall back to OUT pin.
-      state = presenceDetected ? "detected" : "clear";
+      // UART not connected or stale — fall back to OUT pin using same state vocabulary.
+      state = presenceDetected ? "presence" : "clear";
     } else {
       bool moving     = (uartTargetState == 0x01 || uartTargetState == 0x03);
       bool stationary = (uartTargetState == 0x02 || uartTargetState == 0x03);

@@ -275,6 +275,108 @@ bool sendHACommand(bool on) {
   return success;
 }
 
+/*
+ * sendHASensorState - POST a presence state string to the HA REST state endpoint.
+ * Creates or updates a sensor entity in Home Assistant with the given state value.
+ * When haEntitySrc == "uart" and fresh UART data is available, distance and
+ * energy attributes are included so HA automations can use the richer data.
+ * @param state Presence state string
+ * @return true if HTTP 200 or 201 received
+ */
+bool sendHASensorState(const String& state) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  String url = String(haHTTPS ? "https" : "http") + "://" + haIP + ":" + haPort +
+               "/api/states/" + haEntityId;
+
+  // Base attributes always included.
+  String body = "{\"state\":\"" + state + "\","
+                "\"attributes\":{\"friendly_name\":\"Presence Sensor\"";
+
+  // Append LD2410C UART detail attributes when available and fresh (< 3 s old).
+  bool uartFresh = (haEntitySrc == "uart" &&
+                    lastUartUpdateMs > 0 &&
+                    (millis() - lastUartUpdateMs) < 3000UL);
+  if (uartFresh) {
+    body += ",\"moving_distance_cm\":"     + String(uartMovingDistance);
+    body += ",\"moving_energy\":"          + String(uartMovingEnergy);
+    body += ",\"stationary_distance_cm\":" + String(uartStationaryDistance);
+    body += ",\"stationary_energy\":"      + String(uartStationaryEnergy);
+    body += ",\"detection_distance_cm\":"  + String(uartDetectionDistance);
+  }
+  body += "}}";
+
+  bool success = false;
+  HTTPClient http;
+  if (haHTTPS) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    http.begin(client, url);
+    http.addHeader("Authorization", "Bearer " + haToken);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST(body);
+    success = (code == 200 || code == 201);
+    verbosePrint("HA sensor POST HTTPS: " + String(code));
+    http.end();
+  } else {
+    http.begin(url);
+    http.addHeader("Authorization", "Bearer " + haToken);
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST(body);
+    success = (code == 200 || code == 201);
+    verbosePrint("HA sensor POST HTTP: " + String(code));
+    http.end();
+  }
+  return success;
+}
+
+/*
+ * updateHASensorEntity - Push current presence state to HA as a sensor entity.
+ * Sends on state change or after republish interval to keep the entity alive.
+ *
+ * haEntitySrc == "uart": reports "movement" | "stationary" | "presence" | "clear"
+ *   derived from LD2410C UART data; falls back to OUT-pin as "presence" | "clear"
+ *   when UART is stale so state vocabulary stays consistent.
+ * haEntitySrc == "out_pin": reports "detected" | "clear" from GPIO OUT pin.
+ */
+void updateHASensorEntity() {
+  static String lastSentState = "";
+  static unsigned long lastPublishMs = 0;
+
+  if (!integrationConfigured || WiFi.status() != WL_CONNECTED) return;
+
+  String state;
+  if (haEntitySrc == "uart") {
+    bool uartFresh = (lastUartUpdateMs > 0 && (millis() - lastUartUpdateMs) < 3000UL);
+    if (!uartFresh) {
+      // UART not connected or stale — fall back to OUT pin using same state vocabulary.
+      state = presenceDetected ? "presence" : "clear";
+    } else {
+      bool moving     = (uartTargetState == 0x01 || uartTargetState == 0x03);
+      bool stationary = (uartTargetState == 0x02 || uartTargetState == 0x03);
+      if (moving && stationary) {
+        state = "presence";    // both simultaneously
+      } else if (moving) {
+        state = "movement";
+      } else if (stationary) {
+        state = "stationary";
+      } else {
+        state = "clear";
+      }
+    }
+  } else {
+    state = presenceDetected ? "detected" : "clear";
+  }
+
+  unsigned long now = millis();
+  if (state == lastSentState && (now - lastPublishMs) < HA_SENSOR_REPUBLISH_MS) return;
+
+  if (sendHASensorState(state)) {
+    lastSentState = state;
+    lastPublishMs = now;
+    serialPrintln("HA sensor entity: " + state);
+  }
+}
+
 void initIntegrationWorker() {
   if (gIntegrationWorkerHandle != nullptr) return;
   BaseType_t ok = xTaskCreatePinnedToCore(
@@ -313,6 +415,11 @@ void controlLight() {
   loggedDisabled = false;
 
   if (integrationMode == "homekit") return;  // HomeKit pushes state changes in loop()
+
+  if (integrationMode == "ha" && haMode == "sensor_entity") {
+    updateHASensorEntity();
+    return;
+  }
 
   bool shouldBeOn = presenceDetected ||
     (millis() - lastDetectionTime < (unsigned long)noDetectionTimeout * 1000UL);

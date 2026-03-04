@@ -165,6 +165,96 @@ void readSensorData() {
 }
 
 /*
+ * parseLD2410CSerial - Non-blocking parser for LD2410C UART data frames.
+ *
+ * The LD2410C sends basic reporting frames at ~10 Hz:
+ *   Header (4): FD FC FB FA
+ *   Length (2): 0D 00  (13 bytes of payload)
+ *   Payload (13):
+ *     [0]    0x02  data-type marker
+ *     [1]    0xAA  frame head
+ *     [2]    target state: 0=none 1=moving 2=stationary 3=both
+ *     [3-4]  moving distance (LE, cm)
+ *     [5]    moving energy (0-100)
+ *     [6-7]  stationary distance (LE, cm)
+ *     [8]    stationary energy (0-100)
+ *     [9-10] detection distance (LE, cm)
+ *     [11]   0x55  frame tail
+ *     [12]   0x00  padding
+ *   End (4): 04 03 02 01
+ *
+ * Uses a 64-byte linear shifting buffer. Validation is structural only
+ * (frame markers and declared payload length); the LD2410C basic reporting
+ * frame does not include a checksum/CRC byte so none is verified.
+ * Populates the uartTarget* globals and sets lastUartUpdateMs.
+ */
+void parseLD2410CSerial() {
+  static uint8_t buf[64];
+  static int     bufLen = 0;
+
+  // Drain whatever is in the UART FIFO without blocking.
+  while (Serial2.available() > 0 && bufLen < (int)sizeof(buf)) {
+    buf[bufLen++] = (uint8_t)Serial2.read();
+  }
+
+  // Process all complete frames that fit in the buffer.
+  while (bufLen >= 23) {
+    // Locate frame header FD FC FB FA.
+    int startIdx = -1;
+    for (int i = 0; i <= bufLen - 4; i++) {
+      if (buf[i] == 0xFD && buf[i+1] == 0xFC &&
+          buf[i+2] == 0xFB && buf[i+3] == 0xFA) {
+        startIdx = i;
+        break;
+      }
+    }
+    if (startIdx < 0) {
+      // No header yet — keep last 3 bytes in case it's a partial header.
+      int keep = (bufLen >= 3) ? 3 : bufLen;
+      memmove(buf, buf + (bufLen - keep), keep);
+      bufLen = keep;
+      return;
+    }
+
+    // Discard bytes before the header.
+    if (startIdx > 0) {
+      bufLen -= startIdx;
+      memmove(buf, buf + startIdx, bufLen);
+    }
+
+    // Need a full 23-byte frame.
+    if (bufLen < 23) return;
+
+    // Validate data length, markers, and frame end.
+    uint16_t dataLen = (uint16_t)buf[4] | ((uint16_t)buf[5] << 8);
+    bool valid = (dataLen == 13 &&
+                  buf[6]  == 0x02 && buf[7]  == 0xAA &&
+                  buf[17] == 0x55 &&
+                  buf[19] == 0x04 && buf[20] == 0x03 &&
+                  buf[21] == 0x02 && buf[22] == 0x01);
+    if (!valid) {
+      // Not a basic reporting frame; skip one byte and retry.
+      bufLen--;
+      memmove(buf, buf + 1, bufLen);
+      continue;
+    }
+
+    // Parse payload fields.
+    uartTargetState        = buf[8];
+    uartMovingDistance     = (int)((uint16_t)buf[9]  | ((uint16_t)buf[10] << 8));
+    uartMovingEnergy       = (int)buf[11];
+    uartStationaryDistance = (int)((uint16_t)buf[12] | ((uint16_t)buf[13] << 8));
+    uartStationaryEnergy   = (int)buf[14];
+    uartDetectionDistance  = (int)((uint16_t)buf[15] | ((uint16_t)buf[16] << 8));
+    lastUartUpdateMs       = millis();
+
+    // Consume the processed frame.
+    bufLen -= 23;
+    if (bufLen > 0) memmove(buf, buf + 23, bufLen);
+  }
+}
+
+/*
  * ================================================================
 
  * SECTION: FACTORY RESET
@@ -556,6 +646,7 @@ void presenceTick() {
   checkResetButtonHeld();
 
   readSensorData();
+  parseLD2410CSerial();
   if (serviceModeActive) {
     blinkPurpleHeartbeat();
   } else {

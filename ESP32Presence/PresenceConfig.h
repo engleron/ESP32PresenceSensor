@@ -36,6 +36,8 @@
 
 // Integration command timing (reduce blocking latency in control loop)
 #define LIGHT_COMMAND_RETRY_INTERVAL_MS   1200
+// Sensor entity: re-publish state to HA even without change (keeps entity alive)
+#define HA_SENSOR_REPUBLISH_MS            60000
 #define INSTEON_HTTP_CONNECT_TIMEOUT_MS   1200
 #define INSTEON_HTTP_TIMEOUT_MS           1200
 #define INSTEON_INTER_REQUEST_DELAY_MS    350

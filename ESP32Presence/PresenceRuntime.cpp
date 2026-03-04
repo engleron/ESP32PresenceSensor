@@ -183,6 +183,9 @@ void readSensorData() {
  *     [12]   0x00  padding
  *   End (4): 04 03 02 01
  *
+ * Uses a 64-byte linear shifting buffer. Validation is structural only
+ * (frame markers and declared payload length); the LD2410C basic reporting
+ * frame does not include a checksum/CRC byte so none is verified.
  * Populates the uartTarget* globals and sets lastUartUpdateMs.
  */
 void parseLD2410CSerial() {

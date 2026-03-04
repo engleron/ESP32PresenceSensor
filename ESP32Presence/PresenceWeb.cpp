@@ -733,9 +733,26 @@ void handleStatus() {
   if (!integrationConfigured) {
     controlBadge = "<span class='badge' style='background:#eee;color:#888'>Not Configured</span>";
   } else if (haIsSensorMode) {
-    controlBadge = presenceDetected
-      ? "<span class='badge badge-green'>detected</span>"
-      : "<span class='badge badge-red'>clear</span>";
+    if (haEntitySrc == "uart") {
+      bool uartFresh = (lastUartUpdateMs > 0 && (millis() - lastUartUpdateMs) < 3000UL);
+      String uartState;
+      if (!uartFresh) {
+        uartState = presenceDetected ? "presence" : "clear";
+      } else {
+        bool moving     = (uartTargetState == 0x01 || uartTargetState == 0x03);
+        bool stationary = (uartTargetState == 0x02 || uartTargetState == 0x03);
+        if (moving && stationary) uartState = "presence";
+        else if (moving)          uartState = "movement";
+        else if (stationary)      uartState = "stationary";
+        else                      uartState = "clear";
+      }
+      String cls = (uartState == "clear") ? "badge-red" : "badge-green";
+      controlBadge = "<span class='badge " + cls + "'>" + uartState + "</span>";
+    } else {
+      controlBadge = presenceDetected
+        ? "<span class='badge badge-green'>detected</span>"
+        : "<span class='badge badge-red'>clear</span>";
+    }
   } else {
     controlBadge = lightOn
       ? "<span class='badge badge-green'>Light ON</span>"

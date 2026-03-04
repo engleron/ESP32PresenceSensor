@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.3.0] - 2026-03-02
+## [2.3.1] - 2026-03-04
+
+Patch release addressing review feedback on the HA sensor entity and LD2410C UART features.
+
+### Changed
+
+- **HA sensor entity payload** — removed invalid `device_class: motion` attribute (only valid for `binary_sensor` entities; omitting it avoids HA warnings when the entity ID is a `sensor.*`).
+- **`WiFiClientSecure` allocation** — the HTTPS path in `sendHASensorState()` now uses a stack-allocated `WiFiClientSecure` instead of heap allocation with `new`/`delete`, eliminating a potential memory fragmentation source on repeated sensor-entity POSTs.
+- **UART-stale fallback state vocabulary** — when `haEntitySrc = uart` but UART data is stale, the fallback now reports `presence`/`clear` (matching the fresh-UART vocabulary) instead of `detected`/`clear`, keeping the state schema consistent for HA automations.
+- **Dashboard "Sensor State" badge** — badge now derives its value from the same state-selection logic used when pushing to HA (including UART freshness and target state), so it accurately reflects what HA receives rather than just showing a binary `detected`/`clear` from the OUT pin.
+- **`parseLD2410CSerial` code comment** — updated to accurately describe the implementation: 64-byte linear shifting buffer (not circular), structural-marker validation only (the LD2410C basic reporting frame does not include a checksum/CRC byte).
+
+### Documentation
+
+- **CONFIGURATION.md** — expanded Home Assistant section with full documentation of HA Mode (`light_control` / `sensor_entity`), Sensor Data Source (`out_pin` / `uart`), state value tables, UART attribute list, and HTTPS certificate note.
+
+---
+
+
 
 Latency and reliability release focused on real-time behavior, setup usability, and Insteon Hub robustness.
 

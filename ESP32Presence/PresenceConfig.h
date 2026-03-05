@@ -7,7 +7,7 @@
 // Uncomment to enable native HomeKit support.
 // Requires the HomeSpan library — install via Arduino IDE:
 //   Tools → Manage Libraries → search "HomeSpan" → install
-// #define ENABLE_HOMEKIT
+#define ENABLE_HOMEKIT
 
 // Runtime web UI + OTA services in normal operation.
 // 0 = disabled by default for lowest control-loop latency

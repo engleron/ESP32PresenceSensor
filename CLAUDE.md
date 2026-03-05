@@ -16,14 +16,16 @@ This is an **Arduino IDE project** — there is no CLI build system (no `make`, 
 
 **Required libraries (install via Library Manager):**
 - Adafruit NeoPixel
-- (Optional) HomeSpan — only needed when `#define ENABLE_HOMEKIT` is uncommented; search "HomeSpan" in Library Manager
+- HomeSpan — search "HomeSpan" in Library Manager (required; `#define ENABLE_HOMEKIT` is enabled by default)
 
 **Required board package:** esp32 by Espressif Systems (add URL to Boards Manager):
 ```
 https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 ```
 
-**Upload settings:** Speed 921600, Flash 4MB, Partition: Default 4MB with spiffs
+**Upload settings:** Speed 921600, Flash 4MB, Partition: **Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)**
+
+> HomeSpan is a large library (~450 KB). The default "Default 4MB with spiffs" partition only allocates ~1.2 MB for the app and will produce a "Sketch too big" error. Switch to `Tools → Partition Scheme → Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)` which gives ~1.9 MB for the app while keeping OTA support. This project does not use SPIFFS, so the reduced SPIFFS space has no effect.
 
 **Compile verification:** A `#warning` message confirms board detection — `"Compiling for ESP32"` or `"Compiling for ESP32-S3"`.
 

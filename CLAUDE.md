@@ -16,7 +16,7 @@ This is an **Arduino IDE project** — there is no CLI build system (no `make`, 
 
 **Required libraries (install via Library Manager):**
 - Adafruit NeoPixel
-- (Optional) arduino-homekit-esp32 by Mixiaoxiao — only needed when `#define ENABLE_HOMEKIT` is uncommented
+- (Optional) HomeSpan — only needed when `#define ENABLE_HOMEKIT` is uncommented; search "HomeSpan" in Library Manager
 
 **Required board package:** esp32 by Espressif Systems (add URL to Boards Manager):
 ```
@@ -65,7 +65,7 @@ Runtime settings remain in NVS via `Preferences`; compile-time defaults are inte
 - **OTA updates** — ArduinoOTA enabled after WiFi connect
 - **mDNS** — hostname `presence.local`
 - **Watchdog** — `esp_task_wdt` with 8-second timeout
-- **HomeKit** — compile-time only; uncomment `#define ENABLE_HOMEKIT` and install arduino-homekit-esp32 library
+- **HomeKit** — compile-time only; uncomment `#define ENABLE_HOMEKIT` and install the HomeSpan library (Library Manager)
 
 ### LED State Reference (PresenceRuntime.cpp)
 

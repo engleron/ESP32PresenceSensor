@@ -520,6 +520,10 @@ void connectToWiFi() {
     serialPrintln(F("Press BOOT briefly to toggle LAN web service mode"));
 #endif
 
+#ifdef ENABLE_HOMEKIT
+    initHomeKit();
+#endif
+
   } else {
     Serial.println();
     serialPrintln(F("WiFi connection failed! Entering setup mode..."));
@@ -654,6 +658,10 @@ void presenceTick() {
   }
 
   controlLight();
+
+#ifdef ENABLE_HOMEKIT
+  homeKitLoop();
+#endif
 
   delay(MAIN_LOOP_DELAY_MS);
 }

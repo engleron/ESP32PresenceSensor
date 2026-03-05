@@ -414,7 +414,14 @@ void controlLight() {
   }
   loggedDisabled = false;
 
-  if (integrationMode == "homekit") return;  // HomeKit pushes state changes in loop()
+#ifdef ENABLE_HOMEKIT
+  if (integrationMode == "homekit") {
+    updateHomeKitOccupancy(presenceDetected);
+    return;
+  }
+#else
+  if (integrationMode == "homekit") return;  // HomeKit disabled at compile time
+#endif
 
   if (integrationMode == "ha" && haMode == "sensor_entity") {
     updateHASensorEntity();
@@ -468,3 +475,79 @@ void controlLight() {
     }
   }
 }
+
+
+#ifdef ENABLE_HOMEKIT
+/*
+ * ================================================================
+ * SECTION: NATIVE HOMEKIT (arduino-homekit-esp32)
+ * ================================================================
+ *
+ * The accessory/service/characteristic structs are defined in
+ * PresenceHomeKit.c (C linkage required for compound-literal storage).
+ * This section provides the runtime functions called from
+ * PresenceRuntime.cpp.
+ *
+ * How it works:
+ *   - initHomeKit()            called once after WiFi connects
+ *   - homeKitLoop()            called every main-loop tick
+ *   - updateHomeKitOccupancy() called whenever presence state changes;
+ *                              notifies paired Apple Home controllers
+ *
+ * HomeKit automations in the Apple Home app react to OCCUPANCY_DETECTED
+ * changes and can turn on/off any HomeKit-native light, including
+ * Leviton Decora Smart Gen2 switches and dimmers.
+ */
+
+#include <arduino_homekit_server.h>
+
+extern "C" {
+  extern char                    hkPasswordBuf[12];
+  extern homekit_characteristic_t hk_ch_occupancy;
+  extern homekit_server_config_t  hk_config;
+}
+
+static bool hkInitialized   = false;
+static bool hkLastOccupancy = false;
+
+/*
+ * initHomeKit - Format pairing code and start the HomeKit accessory server.
+ * Must be called after WiFi is connected.
+ */
+void initHomeKit() {
+  if (hkInitialized || integrationMode != "homekit") return;
+
+  // Convert stored 8-digit code (e.g. "11122333") to "111-22-333"
+  String code = homekitCode;
+  if (code.length() != 8) code = "11122333";
+  String fmt = code.substring(0, 3) + "-" + code.substring(3, 5) + "-" + code.substring(5);
+  fmt.toCharArray(hkPasswordBuf, sizeof(hkPasswordBuf));
+
+  arduino_homekit_setup(&hk_config);
+  hkInitialized = true;
+  serialPrintln("HomeKit accessory started. Pairing code: " + fmt);
+  serialPrintln(F("Open Apple Home > + > Add Accessory > More Options to pair."));
+}
+
+/*
+ * homeKitLoop - Drive the HomeKit server; call every main-loop tick.
+ */
+void homeKitLoop() {
+  if (hkInitialized) arduino_homekit_loop();
+}
+
+/*
+ * updateHomeKitOccupancy - Notify HomeKit controllers of a presence change.
+ * Only sends a notification when the state actually changes.
+ * @param detected true if presence is currently detected
+ */
+void updateHomeKitOccupancy(bool detected) {
+  if (!hkInitialized) return;
+  if (detected == hkLastOccupancy) return;
+  hkLastOccupancy = detected;
+  hk_ch_occupancy.value.uint8_value = detected ? 1 : 0;
+  homekit_characteristic_notify(&hk_ch_occupancy, hk_ch_occupancy.value);
+  serialPrintln("HomeKit: occupancy " + String(detected ? "DETECTED" : "CLEAR"));
+}
+
+#endif  // ENABLE_HOMEKIT

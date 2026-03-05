@@ -480,38 +480,42 @@ void controlLight() {
 #ifdef ENABLE_HOMEKIT
 /*
  * ================================================================
- * SECTION: NATIVE HOMEKIT (arduino-homekit-esp32)
+ * SECTION: NATIVE HOMEKIT (HomeSpan)
  * ================================================================
  *
- * The accessory/service/characteristic structs are defined in
- * PresenceHomeKit.c (C linkage required for compound-literal storage).
- * This section provides the runtime functions called from
- * PresenceRuntime.cpp.
+ * Uses the HomeSpan library (available in the Arduino Library Manager).
+ * Install: Arduino IDE → Tools → Manage Libraries → search "HomeSpan".
  *
  * How it works:
- *   - initHomeKit()            called once after WiFi connects
- *   - homeKitLoop()            called every main-loop tick
- *   - updateHomeKitOccupancy() called whenever presence state changes;
- *                              notifies paired Apple Home controllers
+ *   - initHomeKit()            called once after WiFi connects; configures
+ *                              the pairing code and registers the occupancy
+ *                              sensor accessory with HomeSpan
+ *   - homeKitLoop()            calls homeSpan.poll() every main-loop tick
+ *   - updateHomeKitOccupancy() updates the occupancy characteristic value;
+ *                              HomeSpan automatically notifies paired
+ *                              Apple Home controllers
  *
- * HomeKit automations in the Apple Home app react to OCCUPANCY_DETECTED
+ * HomeKit automations in the Apple Home app react to OccupancyDetected
  * changes and can turn on/off any HomeKit-native light, including
  * Leviton Decora Smart Gen2 switches and dimmers.
  */
 
-#include <arduino_homekit_server.h>
+#include <HomeSpan.h>
 
-extern "C" {
-  extern char                    hkPasswordBuf[12];
-  extern homekit_characteristic_t hk_ch_occupancy;
-  extern homekit_server_config_t  hk_config;
-}
+// Inner struct exposed so updateHomeKitOccupancy() can reach the characteristic.
+struct HKOccupancySensor : Service::OccupancySensor {
+  SpanCharacteristic *occupancyDetected;
+  HKOccupancySensor() : Service::OccupancySensor() {
+    occupancyDetected = new Characteristic::OccupancyDetected(0);
+  }
+};
 
-static bool hkInitialized   = false;
-static bool hkLastOccupancy = false;
+static HKOccupancySensor *hkSensor      = nullptr;
+static bool               hkInitialized = false;
+static bool               hkLastOccupancy = false;
 
 /*
- * initHomeKit - Format pairing code and start the HomeKit accessory server.
+ * initHomeKit - Configure pairing code and start the HomeSpan accessory server.
  * Must be called after WiFi is connected.
  */
 void initHomeKit() {
@@ -521,32 +525,43 @@ void initHomeKit() {
   String code = homekitCode;
   if (code.length() != 8) code = "11122333";
   String fmt = code.substring(0, 3) + "-" + code.substring(3, 5) + "-" + code.substring(5);
-  fmt.toCharArray(hkPasswordBuf, sizeof(hkPasswordBuf));
 
-  arduino_homekit_setup(&hk_config);
+  homeSpan.setLogLevel(0);                          // suppress HomeSpan serial noise
+  homeSpan.setPairingCode(fmt.c_str());
+  homeSpan.begin(Category::Sensors, "Presence Sensor");
+
+  new SpanAccessory();
+    new Service::AccessoryInformation();
+      new Characteristic::Name("Presence Sensor");
+      new Characteristic::Manufacturer("ESP32");
+      new Characteristic::SerialNumber("001");
+      new Characteristic::Model("LD2410C");
+      new Characteristic::FirmwareRevision(FIRMWARE_VERSION);
+      new Characteristic::Identify();
+    hkSensor = new HKOccupancySensor();
+
   hkInitialized = true;
   serialPrintln("HomeKit accessory started. Pairing code: " + fmt);
   serialPrintln(F("Open Apple Home > + > Add Accessory > More Options to pair."));
 }
 
 /*
- * homeKitLoop - Drive the HomeKit server; call every main-loop tick.
+ * homeKitLoop - Drive the HomeSpan server; call every main-loop tick.
  */
 void homeKitLoop() {
-  if (hkInitialized) arduino_homekit_loop();
+  if (hkInitialized) homeSpan.poll();
 }
 
 /*
- * updateHomeKitOccupancy - Notify HomeKit controllers of a presence change.
- * Only sends a notification when the state actually changes.
+ * updateHomeKitOccupancy - Update the occupancy characteristic.
+ * HomeSpan automatically notifies paired Apple Home controllers on change.
  * @param detected true if presence is currently detected
  */
 void updateHomeKitOccupancy(bool detected) {
-  if (!hkInitialized) return;
+  if (!hkInitialized || !hkSensor) return;
   if (detected == hkLastOccupancy) return;
   hkLastOccupancy = detected;
-  hk_ch_occupancy.value.uint8_value = detected ? 1 : 0;
-  homekit_characteristic_notify(&hk_ch_occupancy, hk_ch_occupancy.value);
+  hkSensor->occupancyDetected->setVal(detected ? 1 : 0);
   serialPrintln("HomeKit: occupancy " + String(detected ? "DETECTED" : "CLEAR"));
 }
 

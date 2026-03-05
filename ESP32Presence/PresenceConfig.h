@@ -4,7 +4,9 @@
 #define FIRMWARE_VERSION "2.4.0"
 
 // Compile-time feature flags
-// Uncomment to enable native HomeKit support (requires arduino-homekit-esp32 library)
+// Uncomment to enable native HomeKit support.
+// Requires the HomeSpan library — install via Arduino IDE:
+//   Tools → Manage Libraries → search "HomeSpan" → install
 // #define ENABLE_HOMEKIT
 
 // Runtime web UI + OTA services in normal operation.

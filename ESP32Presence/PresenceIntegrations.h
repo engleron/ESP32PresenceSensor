@@ -12,3 +12,9 @@ bool sendHASensorState(const String& state);
 void updateHASensorEntity();
 void initIntegrationWorker();
 void controlLight();
+
+#ifdef ENABLE_HOMEKIT
+void initHomeKit();
+void homeKitLoop();
+void updateHomeKitOccupancy(bool detected);
+#endif

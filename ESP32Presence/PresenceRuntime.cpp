@@ -409,6 +409,9 @@ bool startRunModeServices(bool asServiceMode) {
     ArduinoOTA.setHostname("esp32-presence");
     ArduinoOTA.onStart([]() { serialPrintln(F("OTA update started...")); });
     ArduinoOTA.onEnd([]()   { serialPrintln(F("OTA update complete!")); });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+      esp_task_wdt_reset();  // feed WDT during blocking OTA receive loop
+    });
     ArduinoOTA.onError([](ota_error_t error) {
       serialPrintln("OTA error: " + String(error));
     });

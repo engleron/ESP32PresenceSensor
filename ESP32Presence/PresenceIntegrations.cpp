@@ -594,12 +594,13 @@ void updateHomeKitState() {
   unsigned long now = millis();
 
   // Use UART if a valid frame arrived within the last 2 s; otherwise fall
-  // back to the binary OUT pin signal.
+  // back to the binary OUT pin signal for occupancy only. For motion, treat
+  // stale UART as "no new motion" and let the motion timer clear it.
   const unsigned long uartStaleLimitMs = 2000UL;
   bool uartFresh = (lastUartUpdateMs > 0) && (now - lastUartUpdateMs < uartStaleLimitMs);
 
-  bool movingNow     = uartFresh ? (uartTargetState == 1 || uartTargetState == 3)
-                                  : presenceDetected;
+  bool movingNow      = uartFresh ? (uartTargetState == 1 || uartTargetState == 3)
+                                  : false;
   bool anyPresenceNow = uartFresh ? (uartTargetState != 0)
                                    : presenceDetected;
 

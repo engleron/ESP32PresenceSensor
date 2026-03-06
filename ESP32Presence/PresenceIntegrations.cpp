@@ -551,7 +551,7 @@ void initHomeKit() {
   homeSpan.setLogLevel(0);                          // suppress HomeSpan serial noise
   homeSpan.setPortNum(1234);                        // HAP port — avoids conflict with WebServer on 80
   homeSpan.setPairingCode(code.c_str());            // raw 8 digits — HomeSpan rejects hyphens
-  homeSpan.begin(Category::Sensors, "Presence Sensor");
+  homeSpan.begin(Category::Sensors, "Presence Sensor", "presence");  // mDNS hostname: presence.local
 
   new SpanAccessory();
     new Service::AccessoryInformation();

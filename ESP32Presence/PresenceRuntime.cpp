@@ -401,8 +401,16 @@ bool startRunModeServices(bool asServiceMode) {
     runModeWebHandlersConfigured = true;
   }
 
-  if (MDNS.begin("presence")) {
-    serialPrintln(F("mDNS started: http://presence.local"));
+#ifdef ENABLE_HOMEKIT
+  // HomeSpan owns the mDNS stack in HomeKit mode; calling MDNS.begin() here
+  // would reset the hostname and wipe the _hap._tcp service record, making the
+  // device invisible in Apple Home. HomeSpan registers presence.local itself.
+  if (integrationMode != "homekit")
+#endif
+  {
+    if (MDNS.begin("presence")) {
+      serialPrintln(F("mDNS started: http://presence.local"));
+    }
   }
 
   if (!otaCallbacksConfigured) {
@@ -516,15 +524,17 @@ void connectToWiFi() {
     serialPrint(F("IP Address: "));
     serialPrintln(WiFi.localIP().toString());
 
+#ifdef ENABLE_HOMEKIT
+    // Must initialise HomeSpan before startRunModeServices so HomeSpan owns the
+    // mDNS stack. startRunModeServices skips MDNS.begin() in HomeKit mode.
+    initHomeKit();
+#endif
+
 #if ENABLE_RUNMODE_WEB_OTA_DEFAULT
     startRunModeServices(false);
 #else
     serialPrintln(F("Run mode active (web disabled by default)"));
     serialPrintln(F("Press BOOT briefly to toggle LAN web service mode"));
-#endif
-
-#ifdef ENABLE_HOMEKIT
-    initHomeKit();
 #endif
 
   } else {

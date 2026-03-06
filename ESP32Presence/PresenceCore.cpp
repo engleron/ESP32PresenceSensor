@@ -1,4 +1,5 @@
 #include "PresenceCore.h"
+#include <nvs.h>
 
 namespace {
 bool isValidHexChar(char c) {
@@ -433,7 +434,23 @@ void clearConfiguration() {
   haMode = "light_control";
   haEntitySrc = "out_pin";
 #ifdef ENABLE_HOMEKIT
-  homekitCode = "11122333";
+  homekitCode        = "11122333";
+  hkMotionClearSecs  = HK_MOTION_CLEAR_SECS_DEFAULT;
+
+  // Clear HomeSpan pairing data from its own NVS namespace so the device
+  // appears as unpaired to Apple Home after factory reset. Without this,
+  // HomeSpan keeps the paired-controller record even though our Preferences
+  // are wiped, and the device silently advertises sf=0 (already paired),
+  // causing it to be invisible in the Home app's Add Accessory screen.
+  {
+    nvs_handle_t hkHandle;
+    if (nvs_open("HSPNVS", NVS_READWRITE, &hkHandle) == ESP_OK) {
+      nvs_erase_all(hkHandle);
+      nvs_commit(hkHandle);
+      nvs_close(hkHandle);
+      serialPrintln(F("HomeSpan pairing data cleared"));
+    }
+  }
 #endif
 
   serialPrintln(F("Configuration cleared!"));

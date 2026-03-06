@@ -367,7 +367,7 @@ void sendIntegrationSection(bool isSetup) {
       "<strong>Motion</strong> &mdash; turns ON immediately when movement is detected; "
       "clears after the motion clear delay below.<br>"
       "<strong>Occupancy</strong> &mdash; turns ON for any presence (moving or still); "
-      "stays ON until the &ldquo;Light Off Delay&rdquo; above expires with no presence. "
+      "stays ON until the &ldquo;Occupancy Off Delay (Light Off Delay)&rdquo; expires with no presence. "
       "Both timers run inside the ESP32 &mdash; no HomeKit shortcut waits needed.</div>"
       "<div class='warn'>"
       "<strong>Alternative (no compile flag needed):</strong> Use the <em>Home Assistant</em> "

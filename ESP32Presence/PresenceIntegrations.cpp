@@ -549,6 +549,7 @@ void initHomeKit() {
   String fmt = code.substring(0, 3) + "-" + code.substring(3, 5) + "-" + code.substring(5);
 
   homeSpan.setLogLevel(0);                          // suppress HomeSpan serial noise
+  homeSpan.setPortNum(1234);                        // HAP port — avoids conflict with WebServer on 80
   homeSpan.setPairingCode(code.c_str());            // raw 8 digits — HomeSpan rejects hyphens
   homeSpan.begin(Category::Sensors, "Presence Sensor");
 

@@ -1,7 +1,7 @@
 #pragma once
 
 // Firmware metadata
-#define FIRMWARE_VERSION "2.4.2"
+#define FIRMWARE_VERSION "2.4.3"
 
 // Compile-time feature flags
 // Uncomment to enable native HomeKit support.

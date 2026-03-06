@@ -353,11 +353,16 @@ void sendIntegrationSection(bool isSetup) {
 
 #ifdef ENABLE_HOMEKIT
   {
-    String motClrSel10  = hkMotionClearSecs == 10  ? " selected" : "";
-    String motClrSel20  = hkMotionClearSecs == 20  ? " selected" : "";
-    String motClrSel30  = hkMotionClearSecs == 30  ? " selected" : "";
-    String motClrSel60  = hkMotionClearSecs == 60  ? " selected" : "";
-    String motClrSel120 = hkMotionClearSecs == 120 ? " selected" : "";
+    bool   motClrIsCustom = (hkMotionClearSecs != 10 && hkMotionClearSecs != 20 &&
+                              hkMotionClearSecs != 30 && hkMotionClearSecs != 60 &&
+                              hkMotionClearSecs != 120);
+    String motClrSecsStr = String(hkMotionClearSecs);
+    String motClrSel10     = hkMotionClearSecs == 10  ? " selected" : "";
+    String motClrSel20     = hkMotionClearSecs == 20  ? " selected" : "";
+    String motClrSel30     = hkMotionClearSecs == 30  ? " selected" : "";
+    String motClrSel60     = hkMotionClearSecs == 60  ? " selected" : "";
+    String motClrSel120    = hkMotionClearSecs == 120 ? " selected" : "";
+    String motClrSelCustom = motClrIsCustom           ? " selected" : "";
     server.sendContent(
       "<div id='sect_homekit'>"
       "<h2>Apple HomeKit Settings</h2>"
@@ -383,7 +388,11 @@ void sendIntegrationSection(bool isSetup) {
       "<option value='20'" + motClrSel20  + ">20 seconds (default)</option>"
       "<option value='30'" + motClrSel30  + ">30 seconds</option>"
       "<option value='60'" + motClrSel60  + ">1 minute</option>"
-      "<option value='120'" + motClrSel120 + ">2 minutes</option>"
+      "<option value='120'" + motClrSel120 + ">2 minutes</option>" +
+      (motClrIsCustom
+        ? "<option value='" + motClrSecsStr + "'" + motClrSelCustom +
+          ">Current: " + motClrSecsStr + " seconds</option>"
+        : String("")) +
       "</select>"
       "<details><summary>Help: HomeKit pairing &amp; automation setup</summary>"
       "<p style='font-size:13px;color:#555'>"

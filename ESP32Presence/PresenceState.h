@@ -67,6 +67,7 @@ extern String haEntitySrc;  // "out_pin" or "uart"
 
 #ifdef ENABLE_HOMEKIT
 extern String homekitCode;
+extern int    hkMotionClearSecs;  // seconds after last movement before motion clears (default 20)
 #endif
 
 // Admin/security/session

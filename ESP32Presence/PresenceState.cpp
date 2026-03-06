@@ -46,7 +46,8 @@ String haMode      = "light_control";  // "light_control" or "sensor_entity"
 String haEntitySrc = "out_pin";        // "out_pin" or "uart"
 
 #ifdef ENABLE_HOMEKIT
-String homekitCode = "11122333";
+String homekitCode      = "11122333";
+int    hkMotionClearSecs = HK_MOTION_CLEAR_SECS_DEFAULT;
 #endif
 
 // Admin/security/session

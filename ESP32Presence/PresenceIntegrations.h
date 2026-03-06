@@ -16,5 +16,5 @@ void controlLight();
 #ifdef ENABLE_HOMEKIT
 void initHomeKit();
 void homeKitLoop();
-void updateHomeKitOccupancy(bool detected);
+void updateHomeKitState();
 #endif

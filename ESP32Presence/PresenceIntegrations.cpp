@@ -416,7 +416,7 @@ void controlLight() {
 
 #ifdef ENABLE_HOMEKIT
   if (integrationMode == "homekit") {
-    updateHomeKitOccupancy(presenceDetected);
+    updateHomeKitState();
     return;
   }
 #else
@@ -486,42 +486,64 @@ void controlLight() {
  * Uses the HomeSpan library (available in the Arduino Library Manager).
  * Install: Arduino IDE → Tools → Manage Libraries → search "HomeSpan".
  *
- * How it works:
- *   - initHomeKit()            called once after WiFi connects; configures
- *                              the pairing code and registers the occupancy
- *                              sensor accessory with HomeSpan
- *   - homeKitLoop()            calls homeSpan.poll() every main-loop tick
- *   - updateHomeKitOccupancy() updates the occupancy characteristic value;
- *                              HomeSpan automatically notifies paired
- *                              Apple Home controllers
+ * Exposes TWO services inside a single "Presence Sensor" accessory:
  *
- * HomeKit automations in the Apple Home app react to OccupancyDetected
- * changes and can turn on/off any HomeKit-native light, including
- * Leviton Decora Smart Gen2 switches and dimmers.
+ *   MotionSensor   "Motion"    — Immediate ON for movement; clears after
+ *                               hkMotionClearSecs of no movement (default 20 s).
+ *                               Use this for "someone just walked in" automations.
+ *
+ *   OccupancySensor "Occupancy" — ON for any valid presence (moving OR still).
+ *                               Stays ON until noDetectionTimeout seconds of
+ *                               continuous no-presence (default 5 min). This is
+ *                               the right trigger for "keep the light on" rules.
+ *
+ * Both timers run entirely inside ESP32 firmware — no HomeKit shortcut
+ * waits or external automation delays are needed.
+ *
+ * State source priority:
+ *   1. UART (uartTargetState) when a valid frame arrived within 2 s.
+ *      Bit 0 = moving target present; Bit 1 = stationary target present.
+ *   2. OUT pin (presenceDetected) as binary fallback when UART is stale.
  */
 
 #include <HomeSpan.h>
 
-// Inner struct exposed so updateHomeKitOccupancy() can reach the characteristic.
+// MotionSensor service — "Motion" tile in Apple Home.
+struct HKMotionSensor : Service::MotionSensor {
+  SpanCharacteristic *motionDetected;
+  HKMotionSensor() : Service::MotionSensor() {
+    new Characteristic::Name("Motion");
+    motionDetected = new Characteristic::MotionDetected(0);
+  }
+};
+
+// OccupancySensor service — "Occupancy" tile in Apple Home.
 struct HKOccupancySensor : Service::OccupancySensor {
   SpanCharacteristic *occupancyDetected;
   HKOccupancySensor() : Service::OccupancySensor() {
+    new Characteristic::Name("Occupancy");
     occupancyDetected = new Characteristic::OccupancyDetected(0);
   }
 };
 
+static HKMotionSensor    *hkMotion      = nullptr;
 static HKOccupancySensor *hkSensor      = nullptr;
 static bool               hkInitialized = false;
-static bool               hkLastOccupancy = false;
+
+// Internal state — track what we last reported to HomeKit and when.
+static bool          hkMotionActive       = false;
+static bool          hkOccupancyActive    = false;
+static unsigned long hkMotionLastOnMs     = 0;   // millis() of last movement frame
+static unsigned long hkOccupancyLastOnMs  = 0;   // millis() of last any-presence frame
 
 /*
  * initHomeKit - Configure pairing code and start the HomeSpan accessory server.
- * Must be called after WiFi is connected.
+ * Must be called once after WiFi connects.
  */
 void initHomeKit() {
   if (hkInitialized || integrationMode != "homekit") return;
 
-  // Convert stored 8-digit code (e.g. "11122333") to "111-22-333"
+  // Convert stored 8-digit code (e.g. "11122333") to "111-22-333" for display.
   String code = homekitCode;
   if (code.length() != 8) code = "11122333";
   String fmt = code.substring(0, 3) + "-" + code.substring(3, 5) + "-" + code.substring(5);
@@ -538,11 +560,14 @@ void initHomeKit() {
       new Characteristic::Model("LD2410C");
       new Characteristic::FirmwareRevision(FIRMWARE_VERSION);
       new Characteristic::Identify();
+    hkMotion = new HKMotionSensor();
     hkSensor = new HKOccupancySensor();
 
   hkInitialized = true;
   serialPrintln("HomeKit accessory started. Pairing code: " + fmt);
   serialPrintln(F("Open Apple Home > + > Add Accessory > More Options to pair."));
+  serialPrintln("HomeKit motion clear: " + String(hkMotionClearSecs) + "s  occupancy timeout: " +
+                String(noDetectionTimeout) + "s");
 }
 
 /*
@@ -553,16 +578,65 @@ void homeKitLoop() {
 }
 
 /*
- * updateHomeKitOccupancy - Update the occupancy characteristic.
- * HomeSpan automatically notifies paired Apple Home controllers on change.
- * @param detected true if presence is currently detected
+ * updateHomeKitState - Two-sensor state machine driven by LD2410C data.
+ *
+ * Motion:    ON immediately when movement seen; OFF after hkMotionClearSecs
+ *            of no movement (handles brief dropouts without false clears).
+ * Occupancy: ON immediately when any presence (moving or still); OFF only
+ *            after noDetectionTimeout seconds of continuous no-presence
+ *            (the office occupancy hold timer).
+ *
+ * Called every loop tick from controlLight() when integrationMode == "homekit".
  */
-void updateHomeKitOccupancy(bool detected) {
-  if (!hkInitialized || !hkSensor) return;
-  if (detected == hkLastOccupancy) return;
-  hkLastOccupancy = detected;
-  hkSensor->occupancyDetected->setVal(detected ? 1 : 0);
-  serialPrintln("HomeKit: occupancy " + String(detected ? "DETECTED" : "CLEAR"));
+void updateHomeKitState() {
+  if (!hkInitialized || !hkMotion || !hkSensor) return;
+
+  unsigned long now = millis();
+
+  // Use UART if a valid frame arrived within the last 2 s; otherwise fall
+  // back to the binary OUT pin signal for occupancy only. For motion, treat
+  // stale UART as "no new motion" and let the motion timer clear it.
+  const unsigned long uartStaleLimitMs = 2000UL;
+  bool uartFresh = (lastUartUpdateMs > 0) && (now - lastUartUpdateMs < uartStaleLimitMs);
+
+  bool movingNow      = uartFresh ? (uartTargetState == 1 || uartTargetState == 3)
+                                  : false;
+  bool anyPresenceNow = uartFresh ? (uartTargetState != 0)
+                                   : presenceDetected;
+
+  // ---- Motion sensor ----
+  if (movingNow) {
+    hkMotionLastOnMs = now;
+    if (!hkMotionActive) {
+      hkMotionActive = true;
+      hkMotion->motionDetected->setVal(1);
+      serialPrintln(F("HomeKit: motion ACTIVE"));
+    }
+  } else if (hkMotionActive) {
+    unsigned long motionClearMs = (unsigned long)hkMotionClearSecs * 1000UL;
+    if (now - hkMotionLastOnMs >= motionClearMs) {
+      hkMotionActive = false;
+      hkMotion->motionDetected->setVal(0);
+      serialPrintln(F("HomeKit: motion CLEAR"));
+    }
+  }
+
+  // ---- Occupancy sensor ----
+  if (anyPresenceNow) {
+    hkOccupancyLastOnMs = now;
+    if (!hkOccupancyActive) {
+      hkOccupancyActive = true;
+      hkSensor->occupancyDetected->setVal(1);
+      serialPrintln(F("HomeKit: occupancy DETECTED"));
+    }
+  } else if (hkOccupancyActive) {
+    unsigned long occupancyTimeoutMs = (unsigned long)noDetectionTimeout * 1000UL;
+    if (now - hkOccupancyLastOnMs >= occupancyTimeoutMs) {
+      hkOccupancyActive = false;
+      hkSensor->occupancyDetected->setVal(0);
+      serialPrintln(F("HomeKit: occupancy CLEAR"));
+    }
+  }
 }
 
 #endif  // ENABLE_HOMEKIT

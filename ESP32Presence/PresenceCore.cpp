@@ -284,7 +284,10 @@ void loadConfiguration() {
   haMode          = preferences.getString("ha_mode",       "light_control");
   haEntitySrc     = preferences.getString("ha_entity_src", "out_pin");
 #ifdef ENABLE_HOMEKIT
-  homekitCode     = preferences.getString("hk_code",   "11122333");
+  homekitCode      = preferences.getString("hk_code",    "11122333");
+  hkMotionClearSecs = preferences.getInt("hk_mot_clr", HK_MOTION_CLEAR_SECS_DEFAULT);
+  if (hkMotionClearSecs < 5)  hkMotionClearSecs = 5;   // floor: avoid instant-clear
+  if (hkMotionClearSecs > 300) hkMotionClearSecs = 300; // ceiling: 5 min max
 #endif
 
   preferences.end();
@@ -307,6 +310,11 @@ void loadConfiguration() {
     Serial.print(F("  Integration: ")); Serial.println(integrationMode);
     Serial.print(F("  Light control: ")); Serial.println(integrationConfigured ? "ENABLED" : "DISABLED");
     Serial.print(F("  Timeout: ")); Serial.print(noDetectionTimeout); Serial.println(F("s"));
+    #ifdef ENABLE_HOMEKIT
+    if (integrationMode == "homekit") {
+      Serial.print(F("  HK motion clear: ")); Serial.print(hkMotionClearSecs); Serial.println(F("s"));
+    }
+    #endif
     Serial.print(F("  Admin password: ")); Serial.println(adminPasswordSet ? "Set" : "NOT SET");
     Serial.print(F("  Custom pins: ")); Serial.println(useCustomPins ? "Yes" : "No");
     if (integrationMode == "insteon_hub") {
@@ -366,6 +374,7 @@ void saveConfiguration() {
   preferences.putString("ha_entity_src",  haEntitySrc);
 #ifdef ENABLE_HOMEKIT
   preferences.putString("hk_code",    homekitCode);
+  preferences.putInt("hk_mot_clr",    hkMotionClearSecs);
 #endif
 
   preferences.end();

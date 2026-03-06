@@ -352,42 +352,67 @@ void sendIntegrationSection(bool isSetup) {
   );
 
 #ifdef ENABLE_HOMEKIT
-  server.sendContent(
-    "<div id='sect_homekit'>"
-    "<h2>Apple HomeKit Settings</h2>"
-    "<div class='info'>"
-    "This device appears as an <strong>Occupancy Sensor</strong> in the Apple Home app. "
-    "Create a Home automation: <em>When Presence Sensor detects occupancy &rarr; turn on "
-    "light</em>. Any HomeKit-native light &mdash; including <strong>Leviton Decora Smart "
-    "Gen2</strong> switches and dimmers &mdash; can be the automation target. "
-    "No hub required.</div>"
-    "<div class='warn'>"
-    "<strong>Alternative (no compile flag needed):</strong> Use the <em>Home Assistant</em> "
-    "integration instead. HA&rsquo;s built-in <em>HomeKit Controller</em> integration can "
-    "pair with Leviton and other HomeKit lights and expose them as HA entities, which this "
-    "sensor can then control directly via the HA light-control mode.</div>"
-    "<label for='hk_code'>Pairing Code (8 digits, no hyphens):</label>"
-    "<input type='text' name='hk_code' id='hk_code' value='" + homekitCode +
-    "' placeholder='11122333' maxlength='8' pattern='[0-9]{8}'>"
-    "<details><summary>Help: HomeKit pairing &amp; Leviton setup</summary>"
-    "<p style='font-size:13px;color:#555'>"
-    "<strong>Pairing (native HomeKit):</strong><br>"
-    "After saving settings and rebooting, open the <strong>Apple Home</strong> app, "
-    "tap <strong>+</strong> &rarr; <strong>Add Accessory</strong> &rarr; "
-    "<strong>More Options</strong>. Select &ldquo;Presence Sensor&rdquo; and enter "
-    "the 8-digit code above when prompted.<br><br>"
-    "<strong>Automation for Leviton (or any HomeKit light):</strong><br>"
-    "In Apple Home: <strong>Automations</strong> tab &rarr; <strong>+</strong> &rarr; "
-    "<em>An Accessory is Controlled</em> &rarr; select <em>Presence Sensor</em> &rarr; "
-    "<em>Detects Occupancy</em> &rarr; choose your Leviton switch as the action "
-    "target.<br><br>"
-    "<strong>Via Home Assistant instead:</strong><br>"
-    "In HA go to <em>Settings &rarr; Devices &amp; Services &rarr; Add Integration &rarr; "
-    "HomeKit Controller</em>. Pair your Leviton there, then use this sensor&rsquo;s "
-    "<em>Home Assistant &rarr; Light / Switch Control</em> mode pointing at the Leviton "
-    "entity &mdash; no ENABLE_HOMEKIT compile flag needed.</p></details>"
-    "</div>"
-  );
+  {
+    bool   motClrIsCustom = (hkMotionClearSecs != 10 && hkMotionClearSecs != 20 &&
+                              hkMotionClearSecs != 30 && hkMotionClearSecs != 60 &&
+                              hkMotionClearSecs != 120);
+    String motClrSecsStr = String(hkMotionClearSecs);
+    String motClrSel10     = hkMotionClearSecs == 10  ? " selected" : "";
+    String motClrSel20     = hkMotionClearSecs == 20  ? " selected" : "";
+    String motClrSel30     = hkMotionClearSecs == 30  ? " selected" : "";
+    String motClrSel60     = hkMotionClearSecs == 60  ? " selected" : "";
+    String motClrSel120    = hkMotionClearSecs == 120 ? " selected" : "";
+    String motClrSelCustom = motClrIsCustom           ? " selected" : "";
+    server.sendContent(
+      "<div id='sect_homekit'>"
+      "<h2>Apple HomeKit Settings</h2>"
+      "<div class='info'>"
+      "This device appears as a <strong>Presence Sensor</strong> accessory in Apple Home "
+      "with two tiles:<br>"
+      "<strong>Motion</strong> &mdash; turns ON immediately when movement is detected; "
+      "clears after the motion clear delay below.<br>"
+      "<strong>Occupancy</strong> &mdash; turns ON for any presence (moving or still); "
+      "stays ON until the &ldquo;Occupancy Off Delay (Light Off Delay)&rdquo; expires with no presence. "
+      "Both timers run inside the ESP32 &mdash; no HomeKit shortcut waits needed.</div>"
+      "<div class='warn'>"
+      "<strong>Alternative (no compile flag needed):</strong> Use the <em>Home Assistant</em> "
+      "integration instead. HA&rsquo;s built-in <em>HomeKit Controller</em> integration can "
+      "pair with Leviton and other HomeKit lights and expose them as HA entities, which this "
+      "sensor can then control directly via the HA light-control mode.</div>"
+      "<label for='hk_code'>Pairing Code (8 digits, no hyphens):</label>"
+      "<input type='text' name='hk_code' id='hk_code' value='" + homekitCode +
+      "' placeholder='11122333' maxlength='8' pattern='[0-9]{8}'>"
+      "<label for='hk_mot_clr'>Motion Clear Delay:</label>"
+      "<select name='hk_mot_clr' id='hk_mot_clr'>"
+      "<option value='10'" + motClrSel10  + ">10 seconds</option>"
+      "<option value='20'" + motClrSel20  + ">20 seconds (default)</option>"
+      "<option value='30'" + motClrSel30  + ">30 seconds</option>"
+      "<option value='60'" + motClrSel60  + ">1 minute</option>"
+      "<option value='120'" + motClrSel120 + ">2 minutes</option>" +
+      (motClrIsCustom
+        ? "<option value='" + motClrSecsStr + "'" + motClrSelCustom +
+          ">Current: " + motClrSecsStr + " seconds</option>"
+        : String("")) +
+      "</select>"
+      "<details><summary>Help: HomeKit pairing &amp; automation setup</summary>"
+      "<p style='font-size:13px;color:#555'>"
+      "<strong>Pairing (native HomeKit):</strong><br>"
+      "After saving settings and rebooting, open the <strong>Apple Home</strong> app, "
+      "tap <strong>+</strong> &rarr; <strong>Add Accessory</strong> &rarr; "
+      "<strong>More Options</strong>. Select &ldquo;Presence Sensor&rdquo; and enter "
+      "the 8-digit code above when prompted.<br><br>"
+      "<strong>Recommended automations:</strong><br>"
+      "Light ON: <em>When Presence Sensor &rarr; Occupancy detects occupancy &rarr; turn on light</em><br>"
+      "Light OFF: <em>When Presence Sensor &rarr; Occupancy no longer detects occupancy &rarr; turn off light</em><br>"
+      "The off delay is handled in firmware; no additional HomeKit timer needed.<br><br>"
+      "<strong>Via Home Assistant instead:</strong><br>"
+      "In HA go to <em>Settings &rarr; Devices &amp; Services &rarr; Add Integration &rarr; "
+      "HomeKit Controller</em>. Pair your Leviton there, then use this sensor&rsquo;s "
+      "<em>Home Assistant &rarr; Light / Switch Control</em> mode pointing at the Leviton "
+      "entity &mdash; no ENABLE_HOMEKIT compile flag needed.</p></details>"
+      "</div>"
+    );
+  }
 #endif
 
   // Show/hide JavaScript
@@ -482,7 +507,7 @@ void handleSetupRoot() {
 
   server.sendContent(
     "<h2>Detection Settings</h2>"
-    "<label for='timeout'>Light Off Delay:</label>"
+    "<label for='timeout'>Occupancy Off Delay (Light Off Delay):</label>"
     "<select name='timeout' id='timeout'>"
     "<option value='60'" + t60   + ">1 minute</option>"
     "<option value='120'" + t120 + ">2 minutes</option>"
@@ -492,10 +517,11 @@ void handleSetupRoot() {
     "<option value='900'" + t900 + ">15 minutes</option>"
     "</select>"
     "<details><summary>Help: Detection Settings</summary>"
-    "<p style='font-size:13px;color:#555'><strong>Light Off Delay:</strong> How long to wait after no presence "
-    "is detected before turning off the light.<br><br>"
+    "<p style='font-size:13px;color:#555'><strong>Occupancy Off Delay:</strong> How long to wait after "
+    "no presence is detected before turning off the light (or clearing HomeKit Occupancy).<br><br>"
     "Shorter times save energy but may turn off lights too quickly if you're sitting still. "
-    "Recommended: 5 minutes.</p></details>"
+    "Recommended: 5 minutes. For HomeKit, the Motion sensor uses a separate shorter clear delay "
+    "configured in the HomeKit section.</p></details>"
   );
 
   // --- Admin Password ---
@@ -603,6 +629,10 @@ void handleSetupSave() {
 #ifdef ENABLE_HOMEKIT
   String hkCode = server.arg("hk_code"); hkCode.trim();
   if (hkCode.length() == 8) homekitCode = hkCode;
+  {
+    int motClr = server.arg("hk_mot_clr").toInt();
+    if (motClr >= 5 && motClr <= 300) hkMotionClearSecs = motClr;
+  }
 #endif
 
   String timeoutStr = server.arg("timeout");
@@ -867,6 +897,10 @@ void handleConfig() {
 #ifdef ENABLE_HOMEKIT
     String hkCode = server.arg("hk_code"); hkCode.trim();
     if (hkCode.length() == 8) homekitCode = hkCode;
+    {
+      int motClr = server.arg("hk_mot_clr").toInt();
+      if (motClr >= 5 && motClr <= 300) hkMotionClearSecs = motClr;
+    }
 #endif
 
     String timeoutStr = server.arg("timeout");
@@ -974,7 +1008,7 @@ void handleConfig() {
 
   server.sendContent(
     "<h2>Detection Settings</h2>"
-    "<label>Light Off Delay:</label>"
+    "<label>Occupancy Off Delay (Light Off Delay):</label>"
     "<select name='timeout'>"
     "<option value='60'" + t60   + ">1 minute</option>"
     "<option value='120'" + t120 + ">2 minutes</option>"

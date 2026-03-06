@@ -36,6 +36,9 @@
 #define STATUS_UPDATE_INTERVAL  2000
 #define WDT_TIMEOUT_SECONDS     8
 
+// HomeKit sensor timing defaults
+#define HK_MOTION_CLEAR_SECS_DEFAULT      20   // seconds before motion clears after last movement
+
 // Integration command timing (reduce blocking latency in control loop)
 #define LIGHT_COMMAND_RETRY_INTERVAL_MS   1200
 // Sensor entity: re-publish state to HA even without change (keeps entity alive)

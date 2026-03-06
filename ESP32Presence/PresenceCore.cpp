@@ -1,5 +1,5 @@
 #include "PresenceCore.h"
-#include <nvs.h>
+#include <nvs_flash.h>
 
 namespace {
 bool isValidHexChar(char c) {
@@ -414,6 +414,14 @@ void clearConfiguration() {
   preferences.clear();
   preferences.end();
 
+  // Erase the entire NVS partition so third-party libraries (e.g. HomeSpan)
+  // that use their own NVS namespaces are also fully reset. HomeSpan stores
+  // pairing/controller records in its own namespace; without this, the device
+  // keeps advertising as already-paired after factory reset and never appears
+  // in Apple Home's Add Accessory screen.
+  nvs_flash_erase();
+  nvs_flash_init();
+
   wifiSSID = wifiPassword = isyIP = isyUsername = isyPassword = isyDeviceID = "";
   adminPasswordHash = "";
   useHTTPS = useCustomPins = isyConfigured = adminPasswordSet = false;
@@ -436,21 +444,6 @@ void clearConfiguration() {
 #ifdef ENABLE_HOMEKIT
   homekitCode        = "11122333";
   hkMotionClearSecs  = HK_MOTION_CLEAR_SECS_DEFAULT;
-
-  // Clear HomeSpan pairing data from its own NVS namespace so the device
-  // appears as unpaired to Apple Home after factory reset. Without this,
-  // HomeSpan keeps the paired-controller record even though our Preferences
-  // are wiped, and the device silently advertises sf=0 (already paired),
-  // causing it to be invisible in the Home app's Add Accessory screen.
-  {
-    nvs_handle_t hkHandle;
-    if (nvs_open("HSPNVS", NVS_READWRITE, &hkHandle) == ESP_OK) {
-      nvs_erase_all(hkHandle);
-      nvs_commit(hkHandle);
-      nvs_close(hkHandle);
-      serialPrintln(F("HomeSpan pairing data cleared"));
-    }
-  }
 #endif
 
   serialPrintln(F("Configuration cleared!"));

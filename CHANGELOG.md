@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.1] - 2026-03-13
+
+Patch release fixing an Arduino linker regression introduced in `2.5.0`.
+
+### Fixed
+
+- **HomeKit manual-test linker error** — resolved undefined reference to `triggerHomeKitTestEvent(...)` by moving its forward declaration out of the anonymous namespace so declaration/definition linkage matches.
+
+### Changed
+
+- **Firmware version bumped to `2.5.1`** in `PresenceConfig.h`.
+
+### Component Version Notes
+
+- **Firmware:** `2.5.1`
+- **Backend:** `2.5.1` (integration dispatch/linkage fix)
+- **Frontend:** `2.5.1` (no UI changes in this patch)
+- **Database/Storage schema:** unchanged (NVS keys unchanged)
+
+---
+
 ## [2.5.0] - 2026-03-13
 
 Feature release focused on easier local access, manual validation tools, and reboot reliability from the web settings flow.

@@ -467,7 +467,7 @@ Please include:
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-**Current version: v2.5.0** — Optional web-login password mode, manual web test actions (LED/presence/motion), and settings reboot stability fix for retained WiFi credentials.
+**Current version: v2.5.1** — Linker-fix patch for HomeKit manual-test helper symbol resolution in Arduino builds.
 
 ---
 

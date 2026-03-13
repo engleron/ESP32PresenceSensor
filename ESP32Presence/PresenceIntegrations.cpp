@@ -3,6 +3,10 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#ifdef ENABLE_HOMEKIT
+bool triggerHomeKitTestEvent(const String& signalType, bool active);
+#endif
+
 namespace {
 bool isValidHexChar(char c) {
   return (c >= '0' && c <= '9') ||
@@ -20,9 +24,6 @@ bool isValidInsteonHexAddress(const String& hex) {
 
 TaskHandle_t gIntegrationWorkerHandle = nullptr;
 
-#ifdef ENABLE_HOMEKIT
-bool triggerHomeKitTestEvent(const String& signalType, bool active);
-#endif
 volatile bool gInsteonDesiredOn = false;
 volatile bool gInsteonCommandQueued = false;
 volatile bool gInsteonCommandInFlight = false;

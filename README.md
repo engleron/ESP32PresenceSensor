@@ -59,7 +59,7 @@ An ESP32-based occupancy detection system using the LD2410C mmWave radar sensor 
 1. Flash the firmware to your ESP32 board
 2. Connect to the `Presence_XXXX` WiFi network from your phone
 3. Open `http://192.168.4.1` (captive portal may open automatically on some devices)
-4. Set an admin password (required)
+4. Optionally set an admin password (leave blank to use physical-access mode)
 5. Done! The device connects to your WiFi and starts detecting presence
 
 ---
@@ -243,10 +243,10 @@ Fill in the following:
 **Detection Settings**
 - **Light Off Delay:** How long to wait after no presence before turning lights off (default: 5 minutes)
 
-**Admin Password (Required)**
-- Set a secure password to protect the configuration page
-- Write it down — you'll need it to change settings later
-- If forgotten, perform a factory reset
+**Admin Password (Optional)**
+- Optional: set a secure password to protect web settings
+- Leave blank to allow local web access when service mode is enabled via physical BOOT press
+- You can enable/disable this later in Settings
 
 **EISY / ISY / Polisy Settings (Optional)**
 - Only fill this out if you have a Universal Devices controller
@@ -290,7 +290,7 @@ After initial setup, if service mode is enabled, access the web interface at:
 
 | Page | URL | Description |
 |------|-----|-------------|
-| Login | `/login` | Enter admin password |
+| Login | `/login` | Enter admin password (only when password mode is enabled) |
 | Status Dashboard | `/` | Live sensor status, uptime, WiFi info |
 | Settings | `/config` | Change all configuration |
 | Factory Reset | `/reset` | Reset device to factory defaults |
@@ -302,7 +302,7 @@ After initial setup, if service mode is enabled, access the web interface at:
 |----------|--------|-------------|
 | `/api/status` | GET | Current status as JSON (no auth required) |
 | `/api/config/export` | GET | Export configuration as JSON (auth required) |
-| `/api/login` | POST | Authenticate, returns session cookie |
+| `/api/login` | POST | Authenticate when password mode is enabled |
 | `/api/logout` | POST | Invalidate session |
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for detailed web interface usage.
@@ -467,7 +467,7 @@ Please include:
 
 See [CHANGELOG.md](CHANGELOG.md) for full version history.
 
-**Current version: v2.3.0** — Multi-integration support (EISY/ISY, Insteon Hub 2, Home Assistant, HomeKit), modular architecture, low-latency runtime, BOOT short-press service mode, async setup scanning, and integration worker task.
+**Current version: v2.5.1** — Linker-fix patch for HomeKit manual-test helper symbol resolution in Arduino builds.
 
 ---
 

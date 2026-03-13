@@ -12,6 +12,7 @@ bool sendHASensorState(const String& state);
 void updateHASensorEntity();
 void initIntegrationWorker();
 void controlLight();
+bool triggerIntegrationTestEvent(const String& signalType, bool active);
 
 #ifdef ENABLE_HOMEKIT
 void initHomeKit();

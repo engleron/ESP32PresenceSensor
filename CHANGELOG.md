@@ -7,6 +7,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.1] - 2026-03-13
+
+Patch release fixing an Arduino linker regression introduced in `2.5.0`.
+
+### Fixed
+
+- **HomeKit manual-test linker error** — resolved undefined reference to `triggerHomeKitTestEvent(...)` by moving its forward declaration out of the anonymous namespace so declaration/definition linkage matches.
+
+### Changed
+
+- **Firmware version bumped to `2.5.1`** in `PresenceConfig.h`.
+
+### Component Version Notes
+
+- **Firmware:** `2.5.1`
+- **Backend:** `2.5.1` (integration dispatch/linkage fix)
+- **Frontend:** `2.5.1` (no UI changes in this patch)
+- **Database/Storage schema:** unchanged (NVS keys unchanged)
+
+---
+
+## [2.5.0] - 2026-03-13
+
+Feature release focused on easier local access, manual validation tools, and reboot reliability from the web settings flow.
+
+### Added
+
+- **Optional web-login mode** — admin password is now optional during setup and can be disabled later from Settings when physical BOOT access is your trust boundary.
+- **Manual web test actions** on the dashboard for:
+  - LED test sequence
+  - Presence ON/OFF integration event tests
+  - Motion ON/OFF integration event tests
+- **Integration test dispatcher** in firmware that routes manual tests through the active integration (EISY/ISY, Insteon Hub, Home Assistant, and HomeKit).
+
+### Changed
+
+- **Firmware version bumped to `2.5.0`** in `PresenceConfig.h`.
+- **Auth gating updated** so web login is bypassed when no admin password is configured.
+- **Navigation behavior adjusted** to hide Logout when password auth is disabled.
+
+### Fixed
+
+- **Save & Reboot WiFi regression** — settings updates no longer clear stored WiFi password when the WiFi password field is left blank, preventing accidental reboot into setup mode (blinking blue).
+
+### Component Version Notes
+
+- **Firmware:** `2.5.0`
+- **Backend:** `2.5.0` (runtime/auth/integration routing changes)
+- **Frontend:** `2.5.0` (setup/settings/dashboard test controls)
+- **Database/Storage schema:** unchanged (NVS keys unchanged)
+
+---
+
+## [2.4.6] - 2026-03-13
+
+Patch release focused on troubleshooting guidance for ESP32-S3 cases where the device remains running but becomes network-unreachable after some uptime.
+
+### Changed
+
+- **Firmware version bumped to `2.4.6`** in `PresenceConfig.h`.
+- **Troubleshooting workflow expanded** with a dedicated WiFi/network section for "works after reset, then stops responding" symptoms, including serial-log capture steps, power integrity checks, RSSI targets, and router isolation tests.
+- **README current-version badge updated** to match the firmware version and reflect this troubleshooting-focused release.
+
+### Component Version Notes
+
+- **Firmware:** `2.4.6`
+- **Backend:** `2.4.6` (firmware runtime and API handlers)
+- **Frontend:** `2.4.6` (documentation/UI guidance set)
+- **Database/Storage schema:** unchanged (NVS keys unchanged)
+
+---
+
 ## [2.3.1] - 2026-03-04
 
 Patch release addressing review feedback on the HA sensor entity and LD2410C UART features.

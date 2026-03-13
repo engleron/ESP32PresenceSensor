@@ -1,5 +1,7 @@
 #include "PresenceWeb.h"
 #include "PresenceCore.h"
+#include "PresenceIntegrations.h"
+#include "PresenceRuntime.h"
 
 
 /*
@@ -77,13 +79,16 @@ void sendPageEnd() {
  * sendNavBar - Send navigation links for authenticated pages.
  */
 void sendNavBar() {
-  server.sendContent(
+  String nav =
     "<div class='nav'>"
     "<a class='btn btn-blue' style='width:auto;padding:8px 14px;font-size:13px;' href='/'>Dashboard</a>"
-    "<a class='btn btn-blue' style='width:auto;padding:8px 14px;font-size:13px;' href='/config'>Settings</a>"
-    "<a class='btn btn-gray' style='width:auto;padding:8px 14px;font-size:13px;' href='/logout'>Logout</a>"
-    "</div>"
-  );
+    "<a class='btn btn-blue' style='width:auto;padding:8px 14px;font-size:13px;' href='/config'>Settings</a>";
+
+  if (adminPasswordSet) {
+    nav += "<a class='btn btn-gray' style='width:auto;padding:8px 14px;font-size:13px;' href='/logout'>Logout</a>";
+  }
+  nav += "</div>";
+  server.sendContent(nav);
 }
 
 static bool isNoPresenceWarningWindow() {
@@ -526,16 +531,16 @@ void handleSetupRoot() {
 
   // --- Admin Password ---
   server.sendContent(
-    "<h2>Admin Password (Required)</h2>"
+    "<h2>Admin Password (Optional)</h2>"
     "<div class='warn'><strong>Important:</strong> Set a secure admin password. "
-    "This protects your device configuration after setup. Write it down!</div>"
+    "This can be left blank when you only enable web mode using physical BOOT access.</div>"
     "<label for='admin_pass'>Admin Password:</label>"
-    "<input type='password' name='admin_pass' id='admin_pass' placeholder='Set an admin password' autocomplete='new-password' required>"
+    "<input type='password' name='admin_pass' id='admin_pass' placeholder='Optional: set an admin password' autocomplete='new-password'>"
     "<label for='admin_pass2'>Confirm Admin Password:</label>"
-    "<input type='password' name='admin_pass2' id='admin_pass2' placeholder='Repeat password' autocomplete='new-password' required>"
+    "<input type='password' name='admin_pass2' id='admin_pass2' placeholder='Repeat password (if set)' autocomplete='new-password'>"
     "<details><summary>Help: Admin Password</summary>"
     "<p style='font-size:13px;color:#555'>This password protects the device configuration page after setup.<br><br>"
-    "You will need this to change settings later. <strong>Write it down!</strong><br><br>"
+    "If blank, login is disabled and local web access relies on physical BOOT access<br><br>"
     "If you forget it, you must factory reset the device by holding the BOOT button for 5 seconds.</p></details>"
   );
 
@@ -577,20 +582,22 @@ void handleSetupSave() {
   String adminPass  = server.arg("admin_pass");
   String adminPass2 = server.arg("admin_pass2");
 
-  // Validate admin password
-  if (adminPass.length() < 4) {
-    sendPageStart("Setup Error");
-    server.sendContent("<h1>Setup Error</h1><div class='err'>Admin password must be at least 4 characters.</div>"
-                       "<a class='btn' href='/'>Go Back</a>");
-    sendPageEnd();
-    return;
-  }
-  if (adminPass != adminPass2) {
-    sendPageStart("Setup Error");
-    server.sendContent("<h1>Setup Error</h1><div class='err'>Admin passwords do not match.</div>"
-                       "<a class='btn' href='/'>Go Back</a>");
-    sendPageEnd();
-    return;
+  // Validate optional admin password (blank disables login requirement).
+  if (adminPass.length() > 0 || adminPass2.length() > 0) {
+    if (adminPass.length() < 4) {
+      sendPageStart("Setup Error");
+      server.sendContent("<h1>Setup Error</h1><div class='err'>Admin password must be at least 4 characters.</div>"
+                         "<a class='btn' href='/'>Go Back</a>");
+      sendPageEnd();
+      return;
+    }
+    if (adminPass != adminPass2) {
+      sendPageStart("Setup Error");
+      server.sendContent("<h1>Setup Error</h1><div class='err'>Admin passwords do not match.</div>"
+                         "<a class='btn' href='/'>Go Back</a>");
+      sendPageEnd();
+      return;
+    }
   }
 
   // Save form values
@@ -639,8 +646,8 @@ void handleSetupSave() {
   noDetectionTimeout = timeoutStr.toInt();
   if (noDetectionTimeout < 60) noDetectionTimeout = 300;
 
-  adminPasswordHash = hashPassword(adminPass);
-  adminPasswordSet  = true;
+  adminPasswordHash = (adminPass.length() > 0) ? hashPassword(adminPass) : "";
+  adminPasswordSet  = (adminPasswordHash.length() == 64);
 
   useCustomPins = (server.arg("use_custom_pins") == "1");
   if (useCustomPins) {
@@ -686,6 +693,13 @@ void handleSetupSave() {
  * handleLogin - Serve the login page (GET) or process login (POST).
  */
 void handleLogin() {
+  // If no password is set, login is bypassed and users can go straight to dashboard.
+  if (!adminPasswordSet) {
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "");
+    return;
+  }
+
   if (server.method() == HTTP_POST) {
     // Process login
     if (isLoginLocked()) {
@@ -843,6 +857,21 @@ void handleStatus() {
     "</p>"
   );
 
+  // Manual test actions for LED and integration event verification.
+  String disableNote = (integrationMode == "none" || !integrationConfigured) ?
+    "<div class='warn'>Integration tests are disabled until a valid integration is configured.</div>" : "";
+  String testButtons =
+    "<h2>Manual Tests</h2>"
+    "<p style='font-size:13px;color:#555'>Use these to validate LED output and force test events to your configured integration.</p>"
+    "<form method='POST' action='/api/test/action'>"
+    "<button type='submit' name='action' value='led'>Test LED</button>"
+    "<button type='submit' name='action' value='presence_on' style='margin-top:8px;'>Send Presence ON</button>"
+    "<button type='submit' name='action' value='presence_off' style='margin-top:8px;'>Send Presence OFF</button>"
+    "<button type='submit' name='action' value='motion_on' style='margin-top:8px;'>Send Motion ON</button>"
+    "<button type='submit' name='action' value='motion_off' style='margin-top:8px;'>Send Motion OFF</button>"
+    "</form>";
+  server.sendContent(disableNote + testButtons);
+
   sendPageEnd();
 }
 
@@ -857,7 +886,8 @@ void handleConfig() {
     String action = server.arg("action");
 
     wifiSSID    = server.arg("wifi_ssid");
-    wifiPassword = server.arg("wifi_pass");
+    String wifiPassArg = server.arg("wifi_pass");
+    if (wifiPassArg.length() > 0) wifiPassword = wifiPassArg;
     isyIP       = server.arg("isy_ip");
     isyUsername = server.arg("isy_user");
     isyDeviceID = server.arg("isy_device");
@@ -907,13 +937,26 @@ void handleConfig() {
     noDetectionTimeout = timeoutStr.toInt();
     if (noDetectionTimeout < 60) noDetectionTimeout = 300;
 
-    // Admin password change
+    // Admin password mode change
     String newPass  = server.arg("new_pass");
     String newPass2 = server.arg("new_pass2");
     String oldPass  = server.arg("old_pass");
+    bool disableWebPassword = (server.arg("disable_web_password") == "1");
 
-    if (newPass.length() > 0) {
-      if (hashPassword(oldPass) != adminPasswordHash) {
+    if (disableWebPassword) {
+      if (adminPasswordSet && hashPassword(oldPass) != adminPasswordHash) {
+        sendPageStart("Settings Error");
+        server.sendContent("<h1>Settings Error</h1>"
+                           "<div class='err'>Current password is required to disable web login password.</div>"
+                           "<a class='btn' href='/config'>Go Back</a>");
+        sendPageEnd();
+        return;
+      }
+      adminPasswordHash = "";
+      adminPasswordSet = false;
+      serialPrintln(F("Web login password disabled"));
+    } else if (newPass.length() > 0) {
+      if (adminPasswordSet && hashPassword(oldPass) != adminPasswordHash) {
         sendPageStart("Settings Error");
         server.sendContent("<h1>Settings Error</h1>"
                            "<div class='err'>Current password is incorrect.</div>"
@@ -938,6 +981,7 @@ void handleConfig() {
         return;
       }
       adminPasswordHash = hashPassword(newPass);
+      adminPasswordSet = true;
       serialPrintln(F("Admin password updated"));
     }
 
@@ -1024,14 +1068,14 @@ void handleConfig() {
 
   // Admin password change
   server.sendContent(
-    "<h2>Change Admin Password</h2>"
+    "<h2>Web Login Password</h2>"
     "<label>Current Password:</label>"
     "<input type='password' name='old_pass' autocomplete='current-password'>"
-    "<label>New Password:</label>"
+    "<label>New Password (optional):</label>"
     "<input type='password' name='new_pass' autocomplete='new-password'>"
     "<label>Confirm New Password:</label>"
     "<input type='password' name='new_pass2' autocomplete='new-password'>"
-    "<div class='help'>Leave all blank to keep the current admin password</div>"
+    "<label><input type='checkbox' name='disable_web_password' value='1'><span class='chk-label'>Disable web login password (physical access mode)</span></label><div class='help'>Leave blank to keep current behavior. Set new password to enable/update login. To disable, check the box above (requires current password if enabled).</div>"
   );
 
   // Advanced settings
@@ -1089,14 +1133,16 @@ void handleReset() {
   if (!requireAuth()) return;
 
   if (server.method() == HTTP_POST) {
-    String enteredPass = server.arg("password");
-    if (hashPassword(enteredPass) != adminPasswordHash) {
-      sendPageStart("Reset Error");
-      sendNavBar();
-      server.sendContent("<h1>Reset Error</h1><div class='err'>Incorrect password.</div>"
-                         "<a class='btn' href='/reset'>Try Again</a>");
-      sendPageEnd();
-      return;
+    if (adminPasswordSet) {
+      String enteredPass = server.arg("password");
+      if (hashPassword(enteredPass) != adminPasswordHash) {
+        sendPageStart("Reset Error");
+        sendNavBar();
+        server.sendContent("<h1>Reset Error</h1><div class='err'>Incorrect password.</div>"
+                           "<a class='btn' href='/reset'>Try Again</a>");
+        sendPageEnd();
+        return;
+      }
     }
 
     sendPageStart("Resetting...");
@@ -1123,8 +1169,8 @@ void handleReset() {
     "WiFi credentials, admin password, and EISY/ISY configuration. The device will "
     "reboot into setup mode.</div>"
     "<form method='POST'>"
-    "<label>Enter Admin Password to Confirm:</label>"
-    "<input type='password' name='password' autofocus required>"
+    "<label>Enter Admin Password to Confirm (if enabled):</label>"
+    "<input type='password' name='password' autofocus>"
     "<button type='submit' class='btn-red'>Factory Reset</button>"
     "<a class='btn btn-gray' href='/'>Cancel</a>"
     "</form>"
@@ -1209,6 +1255,11 @@ void handleApiLogin() {
     String body = server.arg("plain");
     // For simplicity, also accept form args
   }
+  if (!adminPasswordSet) {
+    server.send(200, "application/json", "{\"success\":true,\"session\":\"open\",\"auth_required\":false}");
+    return;
+  }
+
   String pass = server.arg("password");
   if (hashPassword(pass) == adminPasswordHash) {
     String sessionId = createSession();
@@ -1233,6 +1284,49 @@ void handleApiLogout() {
  * SECTION: WEB SERVER SETUP
  * ================================================================
  */
+
+/*
+ * handleApiTestAction - Execute manual test actions from the web dashboard.
+ * Supported actions:
+ *   led, presence_on, presence_off, motion_on, motion_off
+ */
+void handleApiTestAction() {
+  if (!requireAuth()) return;
+
+  String action = server.arg("action");
+  bool ok = false;
+  String message = "Unknown action";
+
+  if (action == "led") {
+    // Quick LED test sequence to confirm RGB output and brightness.
+    setRGB(0, 0, 255);   delay(200);
+    setRGB(0, 255, 0);   delay(200);
+    setRGB(255, 255, 0); delay(200);
+    setRGB(255, 0, 0);   delay(200);
+    updateLED();
+    ok = true;
+    message = "LED test completed";
+  } else if (action == "presence_on") {
+    ok = triggerIntegrationTestEvent("presence", true);
+    message = ok ? "Presence ON test sent" : "Presence ON test failed (check integration config)";
+  } else if (action == "presence_off") {
+    ok = triggerIntegrationTestEvent("presence", false);
+    message = ok ? "Presence OFF test sent" : "Presence OFF test failed (check integration config)";
+  } else if (action == "motion_on") {
+    ok = triggerIntegrationTestEvent("motion", true);
+    message = ok ? "Motion ON test sent" : "Motion ON test failed (check integration config)";
+  } else if (action == "motion_off") {
+    ok = triggerIntegrationTestEvent("motion", false);
+    message = ok ? "Motion OFF test sent" : "Motion OFF test failed (check integration config)";
+  }
+
+  sendPageStart("Manual Test Result");
+  sendNavBar();
+  server.sendContent("<h1>Manual Test Result</h1>" +
+                     String(ok ? "<div class='ok'>" : "<div class='err'>") + message + "</div>" +
+                     "<a class='btn' href='/'>Back to Dashboard</a>");
+  sendPageEnd();
+}
 
 /*
  * setupWebServerSetupMode - Register URL handlers for captive portal setup mode.
@@ -1271,6 +1365,7 @@ void setupWebServerRunMode() {
   server.on("/api/config/export", HTTP_GET, handleApiConfigExport);
   server.on("/api/login",      HTTP_POST, handleApiLogin);
   server.on("/api/logout",     HTTP_POST, handleApiLogout);
+  server.on("/api/test/action", HTTP_POST, handleApiTestAction);
   server.onNotFound([]() {
     server.sendHeader("Location", "/");
     server.send(302, "text/plain", "");

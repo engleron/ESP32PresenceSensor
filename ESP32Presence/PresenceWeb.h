@@ -22,6 +22,7 @@ void handleApiStatus();
 void handleApiConfigExport();
 void handleApiLogin();
 void handleApiLogout();
+void handleApiTestAction();
 
 void setupWebServerSetupMode();
 void setupWebServerRunMode();

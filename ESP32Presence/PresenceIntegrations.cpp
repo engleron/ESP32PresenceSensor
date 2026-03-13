@@ -19,6 +19,10 @@ bool isValidInsteonHexAddress(const String& hex) {
 }
 
 TaskHandle_t gIntegrationWorkerHandle = nullptr;
+
+#ifdef ENABLE_HOMEKIT
+bool triggerHomeKitTestEvent(const String& signalType, bool active);
+#endif
 volatile bool gInsteonDesiredOn = false;
 volatile bool gInsteonCommandQueued = false;
 volatile bool gInsteonCommandInFlight = false;
@@ -395,6 +399,44 @@ void initIntegrationWorker() {
   }
 }
 
+
+
+/*
+ * triggerIntegrationTestEvent - Send a manual integration test event from the web UI.
+ * @param signalType "presence" or "motion"
+ * @param active true for ON/ACTIVE event, false for OFF/CLEAR event
+ * @return true if a matching integration test action was sent successfully
+ */
+bool triggerIntegrationTestEvent(const String& signalType, bool active) {
+  if (!integrationConfigured && integrationMode != "homekit") return false;
+
+  // HomeKit supports explicit motion + occupancy test states.
+#ifdef ENABLE_HOMEKIT
+  if (integrationMode == "homekit") return triggerHomeKitTestEvent(signalType, active);
+#else
+  if (integrationMode == "homekit") return false;
+#endif
+
+  // EISY/ISY and light-control modes map to ON/OFF actions.
+  if (integrationMode == "isy") {
+    if (active) turnLightOn(); else turnLightOff();
+    return true;
+  }
+
+  if (integrationMode == "insteon_hub") {
+    return sendInsteonHubCommand(active);
+  }
+
+  if (integrationMode == "ha") {
+    if (haMode == "sensor_entity") {
+      String state = active ? (signalType == "motion" ? "movement" : "presence") : "clear";
+      return sendHASensorState(state);
+    }
+    return sendHACommand(active);
+  }
+
+  return false;
+}
 /*
  * controlLight - Decide whether to turn the light on or off based on presence.
  * Dispatches to the configured integration (ISY, Insteon Hub, or Home Assistant).
@@ -638,6 +680,31 @@ void updateHomeKitState() {
       serialPrintln(F("HomeKit: occupancy CLEAR"));
     }
   }
+}
+
+
+/*
+ * triggerHomeKitTestEvent - Manually set HomeKit Motion/Occupancy for validation.
+ * @param signalType "motion" updates MotionSensor, any other value updates Occupancy
+ * @param active true to set active/detected, false to clear
+ */
+bool triggerHomeKitTestEvent(const String& signalType, bool active) {
+  if (!hkInitialized || !hkMotion || !hkSensor) return false;
+
+  unsigned long now = millis();
+  if (signalType == "motion") {
+    hkMotion->motionDetected->setVal(active ? 1 : 0);
+    hkMotionActive = active;
+    if (active) hkMotionLastOnMs = now;
+    serialPrintln("HomeKit test motion -> " + String(active ? "ACTIVE" : "CLEAR"));
+    return true;
+  }
+
+  hkSensor->occupancyDetected->setVal(active ? 1 : 0);
+  hkOccupancyActive = active;
+  if (active) hkOccupancyLastOnMs = now;
+  serialPrintln("HomeKit test occupancy -> " + String(active ? "DETECTED" : "CLEAR"));
+  return true;
 }
 
 #endif  // ENABLE_HOMEKIT

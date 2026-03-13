@@ -154,6 +154,33 @@ This guide covers common issues and solutions for the ESP32 Presence Detection S
 - Use a quality USB power adapter (1A minimum)
 - Replace the USB cable with a higher quality one
 
+### Device Works After Reset, Then Becomes Unreachable (Can't Ping)
+
+**Symptoms:** Device boots normally, sensor/LED continue to run, but web UI and ping stop responding until reset
+
+**Likely causes:**
+- Marginal USB power supply/cable (ESP32-S3 WiFi TX current spikes can brown out network operation without a full visible reboot)
+- Weak or noisy 2.4 GHz signal causing repeated reconnect loops
+- Router/AP compatibility issues (band steering, aggressive roaming, or WPA mode mismatch)
+- Heavy network activity while service mode is enabled on weak power
+
+**Step-by-step checks:**
+1. Open Serial Monitor at **115200** and keep it running until failure. Look for: disconnect/reconnect spam, watchdog messages, or repeated WiFi reconnect attempts.
+2. In the Status page (while online), watch RSSI and keep it stronger than **-70 dBm**.
+3. Swap to a known-good data USB cable and a stable **5V / 1A+** adapter (avoid low-current TV/monitor USB ports).
+4. Lock your ESP32 to a stable 2.4 GHz SSID (disable smart-connect/band steering temporarily for testing).
+5. Ensure router security is WPA2/WPA2+WPA3 mixed; avoid legacy-only or unusual enterprise settings for IoT SSIDs.
+6. If possible, reserve a DHCP lease for the ESP32 in your router and confirm the IP does not change unexpectedly.
+
+**Isolation tests:**
+- Run with **service mode disabled** (purple heartbeat off) for normal operation and retest stability.
+- Temporarily move the board within a few feet of the AP/router and test for an hour.
+- Power the sensor and ESP32 from separate known-good supplies only if your wiring supports it safely (shared ground required).
+
+**If issue persists:**
+- Capture complete Serial Monitor logs from boot until failure and include board type, firmware version, RSSI range, and router model when filing an issue.
+
+
 ---
 
 ## Web Interface Issues

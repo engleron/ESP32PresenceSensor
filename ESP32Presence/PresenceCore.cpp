@@ -213,6 +213,10 @@ bool isLoginLocked() {
  * @return true if authenticated, false if redirect was sent
  */
 bool requireAuth() {
+  // If no admin password is configured, physical access is already required to
+  // enable service mode, so we allow direct access without web login.
+  if (!adminPasswordSet) return true;
+
   if (!validateSession()) {
     server.sendHeader("Location", "/login");
     server.send(302, "text/plain", "");

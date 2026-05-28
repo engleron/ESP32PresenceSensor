@@ -1,7 +1,7 @@
 #pragma once
 
 // Firmware metadata
-#define FIRMWARE_VERSION "2.5.1"
+#define FIRMWARE_VERSION "2.6.0"
 
 // Compile-time feature flags
 // Uncomment to enable native HomeKit support.
@@ -47,6 +47,10 @@
 #define INSTEON_HTTP_TIMEOUT_MS           1200
 #define INSTEON_INTER_REQUEST_DELAY_MS    350
 #define INSTEON_RETRY_DELAY_MS            150
+#define HA_HTTP_CONNECT_TIMEOUT_MS        2000
+#define HA_HTTP_TIMEOUT_MS                3000
+#define PRESENCE_DEBOUNCE_COUNT           2
+#define LOG_BUFFER_SIZE                   50
 
 // Board-specific default pin assignments
 #if defined(CONFIG_IDF_TARGET_ESP32S3)

@@ -103,3 +103,18 @@ extern unsigned long deviceStartTime;
 extern bool          useCustomPins;
 extern int           debugLevel;
 extern String        deviceSSID;
+
+// In-memory log ring buffer
+struct LogEntry {
+  unsigned long ms;
+  char msg[120];
+};
+extern LogEntry      logBuffer[LOG_BUFFER_SIZE];
+extern int           logBufferHead;
+extern int           logBufferCount;
+
+// Last integration call result (set by sendHACommand / sendHASensorState)
+extern bool          lastIntegrationOk;
+extern int           lastIntegrationHttpCode;
+extern unsigned long lastIntegrationAttemptMs;
+extern char          lastIntegrationError[80];

@@ -2,6 +2,7 @@
 
 #include "PresenceState.h"
 
+void appendLog(const String& message);
 void serialPrint(const String& message);
 void serialPrintln(const String& message);
 void verbosePrint(const String& message);

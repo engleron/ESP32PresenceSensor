@@ -32,6 +32,18 @@ bool isValidInsteonAddressFormat(const String& addr) {
  */
 
 /*
+ * appendLog - Store a timestamped message in the in-memory ring buffer.
+ * Oldest entry is overwritten when buffer is full.
+ */
+void appendLog(const String& message) {
+  LogEntry& e = logBuffer[logBufferHead];
+  e.ms = millis();
+  message.toCharArray(e.msg, sizeof(e.msg));
+  logBufferHead = (logBufferHead + 1) % LOG_BUFFER_SIZE;
+  if (logBufferCount < LOG_BUFFER_SIZE) logBufferCount++;
+}
+
+/*
  * serialPrint - Print timestamped message without newline.
  * Only outputs if debugLevel > 0.
  */
@@ -53,6 +65,7 @@ void serialPrint(const String& message) {
  * serialPrintln - Print timestamped message with newline.
  */
 void serialPrintln(const String& message) {
+  appendLog(message);
   if (!Serial || debugLevel == 0) return;
   serialPrint(message);
   Serial.println();

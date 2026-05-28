@@ -1228,12 +1228,37 @@ void handleApiStatus() {
     json += "  \"uart_detection_distance_cm\": " + String(uartDetectionDistance) + ",\n";
   }
   json += "  \"integration_configured\": " + String(integrationConfigured ? "true" : "false") + ",\n";
+  json += "  \"last_integration_ok\": " + String(lastIntegrationOk ? "true" : "false") + ",\n";
+  json += "  \"last_integration_http\": " + String(lastIntegrationHttpCode) + ",\n";
+  json += "  \"last_integration_error\": \"" + String(lastIntegrationError) + "\",\n";
+  json += "  \"last_integration_ms\": " + String(lastIntegrationAttemptMs) + ",\n";
   json += "  \"uptime_ms\": " + String(millis()) + ",\n";
   json += "  \"free_heap\": " + String(ESP.getFreeHeap()) + ",\n";
   json += "  \"wifi_rssi\": " + String(WiFi.RSSI()) + ",\n";
   json += "  \"ip\": \"" + WiFi.localIP().toString() + "\",\n";
   json += "  \"last_detection_ms\": " + String(lastDetectionTime) + "\n";
   json += "}";
+  server.send(200, "application/json", json);
+}
+
+/*
+ * handleApiLogs - Return in-memory log ring buffer as JSON array (newest first).
+ */
+void handleApiLogs() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  String json = "[\n";
+  int count = logBufferCount;
+  int head  = logBufferHead;
+  for (int i = 0; i < count; i++) {
+    int idx = (head - 1 - i + LOG_BUFFER_SIZE) % LOG_BUFFER_SIZE;
+    if (i > 0) json += ",\n";
+    json += "  {\"ms\":" + String(logBuffer[idx].ms) + ",\"msg\":\"";
+    // Escape double-quotes in message
+    String m = logBuffer[idx].msg;
+    m.replace("\"", "\\\"");
+    json += m + "\"}";
+  }
+  json += "\n]";
   server.send(200, "application/json", json);
 }
 
@@ -1362,6 +1387,7 @@ void setupWebServerRunMode() {
   server.on("/reset",          HTTP_GET,  handleReset);
   server.on("/reset",          HTTP_POST, handleReset);
   server.on("/api/status",     HTTP_GET,  handleApiStatus);
+  server.on("/api/logs",       HTTP_GET,  handleApiLogs);
   server.on("/api/config/export", HTTP_GET, handleApiConfigExport);
   server.on("/api/login",      HTTP_POST, handleApiLogin);
   server.on("/api/logout",     HTTP_POST, handleApiLogout);

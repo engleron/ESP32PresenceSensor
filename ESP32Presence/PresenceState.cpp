@@ -83,3 +83,14 @@ unsigned long deviceStartTime = 0;
 bool          useCustomPins   = false;
 int           debugLevel      = 1;
 String        deviceSSID      = "Presence_0000";
+
+// In-memory log ring buffer
+LogEntry      logBuffer[LOG_BUFFER_SIZE];
+int           logBufferHead  = 0;
+int           logBufferCount = 0;
+
+// Last integration call result
+bool          lastIntegrationOk          = false;
+int           lastIntegrationHttpCode    = 0;
+unsigned long lastIntegrationAttemptMs  = 0;
+char          lastIntegrationError[80]  = "";

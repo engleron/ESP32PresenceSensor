@@ -19,6 +19,7 @@ void handleReset();
 void handleLogout();
 
 void handleApiStatus();
+void handleApiLogs();
 void handleApiConfigExport();
 void handleApiLogin();
 void handleApiLogout();

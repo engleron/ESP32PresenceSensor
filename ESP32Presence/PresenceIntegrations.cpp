@@ -29,6 +29,11 @@ volatile bool gInsteonCommandQueued = false;
 volatile bool gInsteonCommandInFlight = false;
 volatile unsigned long gInsteonNextAllowedAttemptMs = 0;
 
+volatile bool gHADesiredOn = false;
+volatile bool gHACommandQueued = false;
+volatile bool gHACommandInFlight = false;
+volatile unsigned long gHANextAllowedAttemptMs = 0;
+
 bool timeReached(unsigned long now, unsigned long target) {
   return (long)(now - target) >= 0;
 }
@@ -86,6 +91,30 @@ void integrationWorkerTask(void*) {
         }
       }
     }
+
+    if (integrationMode == "ha" && haMode == "light_control" && integrationConfigured &&
+        gHACommandQueued && !gHACommandInFlight) {
+      unsigned long now = millis();
+      if (timeReached(now, gHANextAllowedAttemptMs)) {
+        bool desired = gHADesiredOn;
+        gHACommandQueued = false;
+        gHACommandInFlight = true;
+
+        bool ok = sendHACommand(desired);
+        gHACommandInFlight = false;
+
+        if (ok) {
+          lightOn = desired;
+          gHANextAllowedAttemptMs = 0;
+          serialPrintln("HA light state set to " + String(desired ? "ON" : "OFF"));
+        } else {
+          gHADesiredOn = desired;
+          gHACommandQueued = true;
+          gHANextAllowedAttemptMs = millis() + LIGHT_COMMAND_RETRY_INTERVAL_MS;
+        }
+      }
+    }
+
     vTaskDelay(pdMS_TO_TICKS(25));
   }
 }
@@ -249,33 +278,53 @@ bool sendInsteonHubCommand(bool on) {
  * @return true if HTTP 200 or 201 received
  */
 bool sendHACommand(bool on) {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (WiFi.status() != WL_CONNECTED) {
+    serialPrintln(F("HA command skipped: WiFi not connected"));
+    return false;
+  }
   String service = on ? "turn_on" : "turn_off";
   String url = String(haHTTPS ? "https" : "http") + "://" + haIP + ":" + haPort +
                "/api/services/homeassistant/" + service;
   String body = "{\"entity_id\":\"" + haEntityId + "\"}";
   bool success = false;
+  int code = 0;
+
+  lastIntegrationAttemptMs = millis();
+  serialPrintln("HA command: " + service + " -> " + haEntityId);
 
   HTTPClient http;
   if (haHTTPS) {
     WiFiClientSecure* client = new WiFiClientSecure;
     client->setInsecure();
+    http.setConnectTimeout(HA_HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HA_HTTP_TIMEOUT_MS);
     http.begin(*client, url);
     http.addHeader("Authorization", "Bearer " + haToken);
     http.addHeader("Content-Type", "application/json");
-    int code = http.POST(body);
+    code = http.POST(body);
     success = (code == 200 || code == 201);
-    verbosePrint("HA HTTPS response: " + String(code));
     http.end();
     delete client;
   } else {
+    http.setConnectTimeout(HA_HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HA_HTTP_TIMEOUT_MS);
     http.begin(url);
     http.addHeader("Authorization", "Bearer " + haToken);
     http.addHeader("Content-Type", "application/json");
-    int code = http.POST(body);
+    code = http.POST(body);
     success = (code == 200 || code == 201);
-    verbosePrint("HA HTTP response: " + String(code));
     http.end();
+  }
+
+  lastIntegrationOk = success;
+  lastIntegrationHttpCode = code;
+  if (success) {
+    snprintf(lastIntegrationError, sizeof(lastIntegrationError), "ok");
+    serialPrintln("HA command OK (HTTP " + String(code) + "): " + service);
+  } else {
+    String err = code <= 0 ? HTTPClient::errorToString(code) : "HTTP " + String(code);
+    err.toCharArray(lastIntegrationError, sizeof(lastIntegrationError));
+    serialPrintln("HA command FAILED (" + err + "): " + service);
   }
   return success;
 }
@@ -311,25 +360,38 @@ bool sendHASensorState(const String& state) {
   body += "}}";
 
   bool success = false;
+  int code = 0;
   HTTPClient http;
   if (haHTTPS) {
     WiFiClientSecure client;
     client.setInsecure();
+    http.setConnectTimeout(HA_HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HA_HTTP_TIMEOUT_MS);
     http.begin(client, url);
     http.addHeader("Authorization", "Bearer " + haToken);
     http.addHeader("Content-Type", "application/json");
-    int code = http.POST(body);
+    code = http.POST(body);
     success = (code == 200 || code == 201);
-    verbosePrint("HA sensor POST HTTPS: " + String(code));
     http.end();
   } else {
+    http.setConnectTimeout(HA_HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HA_HTTP_TIMEOUT_MS);
     http.begin(url);
     http.addHeader("Authorization", "Bearer " + haToken);
     http.addHeader("Content-Type", "application/json");
-    int code = http.POST(body);
+    code = http.POST(body);
     success = (code == 200 || code == 201);
-    verbosePrint("HA sensor POST HTTP: " + String(code));
     http.end();
+  }
+  lastIntegrationAttemptMs = millis();
+  lastIntegrationOk = success;
+  lastIntegrationHttpCode = code;
+  if (!success) {
+    String err = code <= 0 ? HTTPClient::errorToString(code) : "HTTP " + String(code);
+    err.toCharArray(lastIntegrationError, sizeof(lastIntegrationError));
+    serialPrintln("HA sensor POST FAILED (" + err + "): " + state);
+  } else {
+    snprintf(lastIntegrationError, sizeof(lastIntegrationError), "ok");
   }
   return success;
 }
@@ -484,6 +546,16 @@ void controlLight() {
     return;
   }
 
+  if (integrationMode == "ha") {
+    if (shouldBeOn == lightOn && !gHACommandQueued && !gHACommandInFlight) return;
+    if ((gHACommandQueued || gHACommandInFlight) && gHADesiredOn == shouldBeOn) return;
+    gHADesiredOn = shouldBeOn;
+    gHACommandQueued = true;
+    gHANextAllowedAttemptMs = millis();
+    serialPrintln("Light control queued: " + String(shouldBeOn ? "ON" : "OFF") + " via ha");
+    return;
+  }
+
   if (shouldBeOn == lightOn) return;
 
   unsigned long now = millis();
@@ -495,27 +567,10 @@ void controlLight() {
 
   serialPrintln("Light control request: " + String(shouldBeOn ? "ON" : "OFF") + " via " + integrationMode);
 
-  bool ok = false;
   if (shouldBeOn) {
-    if      (integrationMode == "isy")         { turnLightOn();  return; }
-    else if (integrationMode == "ha")          ok = sendHACommand(true);
-    if (ok) {
-      lightOn = true;
-      lastAttemptMs = 0;
-      serialPrintln(F("Light state set to ON"));
-    } else {
-      serialPrintln("Light ON command failed via " + integrationMode);
-    }
+    if (integrationMode == "isy") { turnLightOn(); return; }
   } else {
-    if      (integrationMode == "isy")         { turnLightOff(); return; }
-    else if (integrationMode == "ha")          ok = sendHACommand(false);
-    if (ok) {
-      lightOn = false;
-      lastAttemptMs = 0;
-      serialPrintln(F("Light state set to OFF"));
-    } else {
-      serialPrintln("Light OFF command failed via " + integrationMode);
-    }
+    if (integrationMode == "isy") { turnLightOff(); return; }
   }
 }
 

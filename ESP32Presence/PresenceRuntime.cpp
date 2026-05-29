@@ -138,14 +138,32 @@ void updateLED() {
  */
 void readSensorData() {
   int outPinState = digitalRead(pinSensorOut);
+  bool rawPresence = (outPinState == HIGH);
 
-  if (outPinState == HIGH) {
+  // Debounce: require PRESENCE_DEBOUNCE_COUNT consecutive matching reads before
+  // flipping presence state to suppress noise at sensor detection boundary.
+  static bool lastRawPresence = false;
+  static int  debounceCount   = 0;
+
+  if (rawPresence == lastRawPresence) {
+    if (debounceCount < PRESENCE_DEBOUNCE_COUNT) debounceCount++;
+  } else {
+    lastRawPresence = rawPresence;
+    debounceCount = 1;
+  }
+
+  if (debounceCount < PRESENCE_DEBOUNCE_COUNT) {
+    // Update lastDetectionTime even during debounce when pin is high so
+    // the no-detection timeout doesn't fire during a transient drop.
+    if (rawPresence) lastDetectionTime = millis();
+    sensorError = false;
+    return;
+  }
+
+  if (rawPresence) {
     presenceDetected = true;
     lastDetectionTime = millis();
     sensorError = false;
-
-    // OUT pin only reports presence (HIGH/LOW). Keep this legacy flag true
-    // while present for API backward compatibility.
     isMoving = true;
 
     if (millis() - lastStatusPrint > 2000) {

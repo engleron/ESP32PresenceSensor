@@ -173,6 +173,63 @@ void handleCaptivePortal() {
 }
 
 /*
+ * sendSensorTuningSection - Streamed HTML for the LD2410C sensitivity block.
+ * Shared by the setup portal and the run-mode settings page.
+ */
+void sendSensorTuningSection() {
+  String tuneChecked = ld2410TuningEnabled ? " checked" : "";
+
+  String gateOpts;
+  for (int g = 2; g <= 8; g++) {
+    gateOpts += "<option value='" + String(g) + "'" +
+                (ld2410MaxGate == g ? " selected" : "") + ">Gate " + String(g) +
+                " (~" + String(g * 75) + " cm" + (g == 8 ? ", max)" : ")") + "</option>";
+  }
+
+  server.sendContent(
+    "<details><summary>Sensor Sensitivity (LD2410C)</summary>"
+    "<div class='info'>The radar can false-trigger on HVAC airflow, fans, or "
+    "reflections, keeping occupancy ON in an empty room. These values are written "
+    "to the sensor over UART. <strong>Higher threshold = less sensitive</strong> "
+    "(fewer false triggers). Each gate is ~0.75 m, so lowering the max gate ignores "
+    "distant motion.</div>"
+    "<label><input type='checkbox' name='ld_tune' value='1'" + tuneChecked + ">"
+    "<span class='chk-label'>Apply custom sensor sensitivity</span></label>"
+    "<div class='help'>When unchecked, the sensor keeps its factory settings and "
+    "the firmware sends no tuning commands.</div>"
+    "<label for='ld_gate'>Max Detection Distance:</label>"
+    "<select name='ld_gate' id='ld_gate'>" + gateOpts + "</select>"
+    "<label for='ld_mov'>Moving Target Threshold (0-100):</label>"
+    "<input type='number' name='ld_mov' id='ld_mov' value='" + String(ld2410MovingSens) +
+    "' min='0' max='100'>"
+    "<label for='ld_sta'>Static Target Threshold (0-100):</label>"
+    "<input type='number' name='ld_sta' id='ld_sta' value='" + String(ld2410StaticSens) +
+    "' min='0' max='100'>"
+    "<div class='help'>To stop false occupancy in an empty room, raise the Static "
+    "threshold first (e.g. 60-80) and/or lower the max gate. Typical starting point: "
+    "moving 50, static 60. Changes apply immediately on Save (no reboot needed).</div>"
+    "</details>"
+  );
+}
+
+/*
+ * applySensorTuningForm - Parse the LD2410C tuning fields from a POSTed form.
+ * Shared by the setup-save and settings POST handlers.
+ */
+void applySensorTuningForm() {
+  ld2410TuningEnabled = (server.arg("ld_tune") == "1");
+
+  int gate = server.arg("ld_gate").toInt();
+  if (gate >= 2 && gate <= 8) ld2410MaxGate = gate;
+
+  int mov = server.arg("ld_mov").toInt();
+  if (mov >= 0 && mov <= 100) ld2410MovingSens = mov;
+
+  int sta = server.arg("ld_sta").toInt();
+  if (sta >= 0 && sta <= 100) ld2410StaticSens = sta;
+}
+
+/*
  * sendIntegrationSection - Send the integration selector UI block as streamed HTML.
  * @param isSetup true for initial setup (shows existing passwords), false for settings page
  */
@@ -529,6 +586,8 @@ void handleSetupRoot() {
     "configured in the HomeKit section.</p></details>"
   );
 
+  sendSensorTuningSection();
+
   // --- Admin Password ---
   server.sendContent(
     "<h2>Admin Password (Optional)</h2>"
@@ -645,6 +704,8 @@ void handleSetupSave() {
   String timeoutStr = server.arg("timeout");
   noDetectionTimeout = timeoutStr.toInt();
   if (noDetectionTimeout < 60) noDetectionTimeout = 300;
+
+  applySensorTuningForm();
 
   adminPasswordHash = (adminPass.length() > 0) ? hashPassword(adminPass) : "";
   adminPasswordSet  = (adminPasswordHash.length() == 64);
@@ -937,6 +998,8 @@ void handleConfig() {
     noDetectionTimeout = timeoutStr.toInt();
     if (noDetectionTimeout < 60) noDetectionTimeout = 300;
 
+    applySensorTuningForm();
+
     // Admin password mode change
     String newPass  = server.arg("new_pass");
     String newPass2 = server.arg("new_pass2");
@@ -1002,6 +1065,10 @@ void handleConfig() {
 
     saveConfiguration();
 
+    // Push sensor tuning to the radar live (no reboot needed). When tuning is
+    // disabled this is a no-op and the sensor keeps its current settings.
+    applyLd2410Config();
+
     if (action == "reboot") {
       sendPageStart("Saving...");
       server.sendContent("<h1>Saved &amp; Rebooting</h1>"
@@ -1062,6 +1129,8 @@ void handleConfig() {
     "<option value='900'" + t900 + ">15 minutes</option>"
     "</select>"
   );
+
+  sendSensorTuningSection();
 
   // Integration
   sendIntegrationSection(false);

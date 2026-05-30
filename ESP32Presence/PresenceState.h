@@ -86,6 +86,12 @@ extern bool          sensorError;
 extern unsigned long lastDetectionTime;
 extern unsigned long lastStatusPrint;
 
+// LD2410C sensor sensitivity tuning (applied to the radar over UART)
+extern bool          ld2410TuningEnabled;  // when false, sensor keeps its own settings
+extern int           ld2410MaxGate;        // max distance gate 2..8 (~0.75 m each)
+extern int           ld2410MovingSens;     // moving threshold 0..100 (all gates)
+extern int           ld2410StaticSens;     // static threshold 0..100 (all gates)
+
 // LD2410C UART parsed data (updated by parseLD2410CSerial)
 extern uint8_t       uartTargetState;       // 0=none 1=moving 2=stationary 3=both
 extern int           uartMovingDistance;    // cm (0 when not detected)

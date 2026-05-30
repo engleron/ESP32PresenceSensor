@@ -134,6 +134,186 @@ void updateLED() {
  */
 
 /*
+ * ----------------------------------------------------------------
+ * LD2410C configuration command protocol
+ *
+ * Config/ACK frames use a different framing from the data report
+ * frames parsed in parseLD2410CSerial():
+ *   Header (4): FD FC FB FA
+ *   Length (2): payload length, little-endian (command word + value)
+ *   Payload   : command word (2, LE) + value bytes
+ *   Footer (4): 04 03 02 01
+ *
+ * Commands used here (per Hi-Link LD2410 serial protocol):
+ *   0x00FF enable configuration   (value 0x0001)
+ *   0x00FE end configuration
+ *   0x0060 set max moving/static gate + no-one duration
+ *   0x0064 set per-gate sensitivity (gate 0xFFFF = all gates)
+ *
+ * Sensitivity values are detection THRESHOLDS (0-100): a gate reports a
+ * target only when its energy exceeds the threshold, so a HIGHER value
+ * means LESS sensitive / fewer false triggers.
+ * ----------------------------------------------------------------
+ */
+
+// Send one LD2410 command frame and wait briefly for its ACK.
+// Returns true if an ACK with success status (0x0000) was received.
+static bool ld2410SendCommand(uint16_t cmd, const uint8_t* value, uint16_t valueLen) {
+  uint16_t payloadLen = 2 + valueLen;  // command word + value
+  uint8_t header[6] = {0xFD, 0xFC, 0xFB, 0xFA,
+                       (uint8_t)(payloadLen & 0xFF), (uint8_t)(payloadLen >> 8)};
+  uint8_t cmdWord[2] = {(uint8_t)(cmd & 0xFF), (uint8_t)(cmd >> 8)};
+  uint8_t footer[4] = {0x04, 0x03, 0x02, 0x01};
+
+  // Drop any pending RX bytes so we read this command's ACK, not stale data.
+  while (Serial2.available()) Serial2.read();
+
+  Serial2.write(header, sizeof(header));
+  Serial2.write(cmdWord, sizeof(cmdWord));
+  if (valueLen > 0) Serial2.write(value, valueLen);
+  Serial2.write(footer, sizeof(footer));
+  Serial2.flush();
+
+  // Read ACK: header FD FC FB FA ... footer 04 03 02 01.
+  uint8_t buf[64];
+  int len = 0;
+  unsigned long start = millis();
+  while ((millis() - start) < 200 && len < (int)sizeof(buf)) {
+    esp_task_wdt_reset();  // ACK wait must not trip the 8s watchdog
+    while (Serial2.available() && len < (int)sizeof(buf)) {
+      buf[len++] = (uint8_t)Serial2.read();
+    }
+    // Look for a complete ACK frame in what we have so far.
+    for (int i = 0; i + 10 <= len; i++) {
+      if (buf[i] == 0xFD && buf[i+1] == 0xFC && buf[i+2] == 0xFB && buf[i+3] == 0xFA) {
+        // buf[i+6..7] = (cmd | 0x0100); buf[i+8..9] = status (0 = success)
+        uint16_t ackCmd = (uint16_t)buf[i+6] | ((uint16_t)buf[i+7] << 8);
+        uint16_t status = (uint16_t)buf[i+8] | ((uint16_t)buf[i+9] << 8);
+        if (ackCmd == (cmd | 0x0100)) return (status == 0x0000);
+      }
+    }
+  }
+  return false;  // no/!valid ACK within timeout
+}
+
+// Send a command, retrying a few times if no ACK arrives (the radar can be
+// briefly unready right after power-up).
+static bool ld2410SendCommandRetry(uint16_t cmd, const uint8_t* value, uint16_t valueLen) {
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (ld2410SendCommand(cmd, value, valueLen)) return true;
+    delay(80);
+  }
+  return false;
+}
+
+// Read the sensor's currently stored parameters (must be in config mode) and
+// log them, so we can confirm a write actually took effect.
+static void ld2410ReadParams() {
+  uint8_t header[6] = {0xFD, 0xFC, 0xFB, 0xFA, 0x02, 0x00};
+  uint8_t cmdWord[2] = {0x61, 0x00};  // 0x0061 read parameters, no value
+  uint8_t footer[4] = {0x04, 0x03, 0x02, 0x01};
+
+  while (Serial2.available()) Serial2.read();
+  Serial2.write(header, sizeof(header));
+  Serial2.write(cmdWord, sizeof(cmdWord));
+  Serial2.write(footer, sizeof(footer));
+  Serial2.flush();
+
+  uint8_t buf[80];
+  int len = 0;
+  unsigned long start = millis();
+  while ((millis() - start) < 300 && len < (int)sizeof(buf)) {
+    esp_task_wdt_reset();
+    while (Serial2.available() && len < (int)sizeof(buf)) buf[len++] = (uint8_t)Serial2.read();
+    for (int i = 0; i + 38 <= len; i++) {
+      if (buf[i] == 0xFD && buf[i+1] == 0xFC && buf[i+2] == 0xFB && buf[i+3] == 0xFA &&
+          buf[i+6] == 0x61 && buf[i+7] == 0x01) {
+        // Layout after cmd echo: status(2), 0xAA, maxGate, maxMovGate, maxStaGate,
+        // moving sens g0..g8 (9), static sens g0..g8 (9), no-one duration (2 LE).
+        uint8_t maxGate    = buf[i+11];
+        uint8_t maxMovGate = buf[i+12];
+        uint8_t maxStaGate = buf[i+13];
+        uint16_t noOne     = (uint16_t)buf[i+32] | ((uint16_t)buf[i+33] << 8);
+        String mov, sta;
+        for (int g = 0; g <= 8; g++) {
+          mov += String(buf[i+14+g]) + (g < 8 ? "," : "");
+          sta += String(buf[i+23+g]) + (g < 8 ? "," : "");
+        }
+        serialPrintln("LD2410C readback: maxGate=" + String(maxGate) +
+                      " maxMov=" + String(maxMovGate) + " maxSta=" + String(maxStaGate) +
+                      " noOne=" + String(noOne) + "s");
+        serialPrintln("  moving sens g0-8: " + mov);
+        serialPrintln("  static sens g0-8: " + sta);
+        return;
+      }
+    }
+  }
+  serialPrintln(F("LD2410C readback: no parameter ACK"));
+}
+
+// Helper: pack a 16-bit parameter word + 32-bit little-endian value into a buffer.
+static void ld2410PackParam(uint8_t* dst, uint16_t word, uint32_t val) {
+  dst[0] = (uint8_t)(word & 0xFF);
+  dst[1] = (uint8_t)(word >> 8);
+  dst[2] = (uint8_t)(val & 0xFF);
+  dst[3] = (uint8_t)((val >> 8) & 0xFF);
+  dst[4] = (uint8_t)((val >> 16) & 0xFF);
+  dst[5] = (uint8_t)((val >> 24) & 0xFF);
+}
+
+/*
+ * applyLd2410Config - Push the saved sensitivity/range tuning to the radar.
+ *
+ * No-op (returns true) when ld2410TuningEnabled is false so the sensor keeps
+ * its own factory/per-gate settings. Safe to call at boot and after a save;
+ * the LD2410 persists these values in its own flash. Briefly stops data
+ * reporting while config mode is active.
+ */
+bool applyLd2410Config() {
+  if (!ld2410TuningEnabled) return true;
+
+  serialPrintln(F("Applying LD2410C sensor tuning..."));
+
+  bool ok = true;
+
+  // 1) Enable configuration mode (value 0x0001). Retry: the radar may be
+  //    briefly unready right after power-up.
+  uint8_t enable[2] = {0x01, 0x00};
+  ok &= ld2410SendCommandRetry(0x00FF, enable, sizeof(enable));
+
+  // 2) Max moving gate (word 0), max static gate (word 1), no-one duration
+  //    in seconds (word 2). Keep absence delay short (5 s) and let the firmware
+  //    occupancy timeout own the long off-delay.
+  uint8_t maxCfg[18];
+  ld2410PackParam(maxCfg + 0,  0x0000, (uint32_t)ld2410MaxGate);
+  ld2410PackParam(maxCfg + 6,  0x0001, (uint32_t)ld2410MaxGate);
+  ld2410PackParam(maxCfg + 12, 0x0002, (uint32_t)5);
+  ok &= ld2410SendCommandRetry(0x0060, maxCfg, sizeof(maxCfg));
+
+  // 3) Sensitivity for all gates at once (gate word value 0xFFFF).
+  uint8_t sensCfg[18];
+  ld2410PackParam(sensCfg + 0,  0x0000, (uint32_t)0xFFFF);
+  ld2410PackParam(sensCfg + 6,  0x0001, (uint32_t)ld2410MovingSens);
+  ld2410PackParam(sensCfg + 12, 0x0002, (uint32_t)ld2410StaticSens);
+  ok &= ld2410SendCommandRetry(0x0064, sensCfg, sizeof(sensCfg));
+
+  // 4) Read the stored values back and log them for verification.
+  ld2410ReadParams();
+
+  // 5) End configuration mode (resumes data reporting).
+  ok &= ld2410SendCommandRetry(0x00FE, nullptr, 0);
+
+  if (ok) {
+    serialPrintln("LD2410C tuned: gate<=" + String(ld2410MaxGate) +
+                  " (~" + String(ld2410MaxGate * 75) + "cm)  moving=" +
+                  String(ld2410MovingSens) + "  static=" + String(ld2410StaticSens));
+  } else {
+    serialPrintln(F("LD2410C tuning FAILED (no/!ACK) - check sensor TX/RX wiring & 256000 baud"));
+  }
+  return ok;
+}
+
+/*
  * readSensorData - Read the LD2410C OUT pin and update presence state.
  */
 void readSensorData() {
@@ -609,6 +789,14 @@ void presenceInit() {
 
   // Initialize sensor OUT pin
   pinMode(pinSensorOut, INPUT);
+
+  // Push saved sensitivity/range tuning to the radar (no-op if tuning disabled).
+  // Give the LD2410C ~1 s after power-up before sending config commands; it can
+  // ignore commands while still booting, which would silently drop the tuning.
+  if (ld2410TuningEnabled) {
+    delay(1000);
+    applyLd2410Config();
+  }
 
   // Integration worker handles potentially blocking network actions off the main loop
   initIntegrationWorker();

@@ -274,6 +274,15 @@ void loadConfiguration() {
   useHTTPS    = preferences.getBool("use_https",    false);
 
   noDetectionTimeout  = preferences.getInt("timeout",    300);
+
+  ld2410TuningEnabled = preferences.getBool("ld_tune", false);
+  ld2410MaxGate       = preferences.getInt("ld_gate", 8);
+  ld2410MovingSens    = preferences.getInt("ld_mov",  50);
+  ld2410StaticSens    = preferences.getInt("ld_sta",  50);
+  if (ld2410MaxGate < 2 || ld2410MaxGate > 8)        ld2410MaxGate    = 8;
+  if (ld2410MovingSens < 0 || ld2410MovingSens > 100) ld2410MovingSens = 50;
+  if (ld2410StaticSens < 0 || ld2410StaticSens > 100) ld2410StaticSens = 50;
+
   adminPasswordHash   = preferences.getString("adm_hash", "");
   adminPasswordSet    = (adminPasswordHash.length() == 64);
 
@@ -369,6 +378,10 @@ void saveConfiguration() {
   preferences.putString("isy_device", isyDeviceID);
   preferences.putBool("use_https",    useHTTPS);
   preferences.putInt("timeout",       noDetectionTimeout);
+  preferences.putBool("ld_tune",      ld2410TuningEnabled);
+  preferences.putInt("ld_gate",       ld2410MaxGate);
+  preferences.putInt("ld_mov",        ld2410MovingSens);
+  preferences.putInt("ld_sta",        ld2410StaticSens);
   preferences.putString("adm_hash",   adminPasswordHash);
   preferences.putBool("custom_pins",  useCustomPins);
   preferences.putInt("pin_out",       pinSensorOut);
@@ -443,6 +456,10 @@ void clearConfiguration() {
   adminPasswordHash = "";
   useHTTPS = useCustomPins = isyConfigured = adminPasswordSet = false;
   noDetectionTimeout = 300;
+  ld2410TuningEnabled = false;
+  ld2410MaxGate = 8;
+  ld2410MovingSens = 50;
+  ld2410StaticSens = 50;
   ledBrightness = 50;
   debugLevel = 1;
   pinSensorOut = SENSOR_OUT_PIN;
@@ -480,6 +497,10 @@ String buildConfigJson() {
   json += "  \"isy_device\": \"" + isyDeviceID + "\",\n";
   json += "  \"use_https\": " + String(useHTTPS ? "true" : "false") + ",\n";
   json += "  \"timeout\": " + String(noDetectionTimeout) + ",\n";
+  json += "  \"ld2410_tuning_enabled\": " + String(ld2410TuningEnabled ? "true" : "false") + ",\n";
+  json += "  \"ld2410_max_gate\": " + String(ld2410MaxGate) + ",\n";
+  json += "  \"ld2410_moving_sens\": " + String(ld2410MovingSens) + ",\n";
+  json += "  \"ld2410_static_sens\": " + String(ld2410StaticSens) + ",\n";
   json += "  \"led_brightness\": " + String(ledBrightness) + ",\n";
   json += "  \"debug_level\": " + String(debugLevel) + ",\n";
   json += "  \"use_custom_pins\": " + String(useCustomPins ? "true" : "false") + ",\n";

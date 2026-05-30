@@ -66,6 +66,12 @@ bool          sensorError        = false;
 unsigned long lastDetectionTime  = 0;
 unsigned long lastStatusPrint    = 0;
 
+// LD2410C sensor sensitivity tuning (applied to the radar over UART)
+bool          ld2410TuningEnabled = false;  // when false, sensor keeps its own settings
+int           ld2410MaxGate       = 8;      // max distance gate 2..8 (~0.75 m each)
+int           ld2410MovingSens    = 50;     // moving threshold 0..100 (all gates)
+int           ld2410StaticSens    = 50;     // static threshold 0..100 (all gates)
+
 // LD2410C UART parsed data
 uint8_t       uartTargetState        = 0;
 int           uartMovingDistance     = 0;

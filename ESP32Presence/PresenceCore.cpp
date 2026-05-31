@@ -1,4 +1,5 @@
 #include "PresenceCore.h"
+#include "PresenceIntegrations.h"
 #include <nvs_flash.h>
 
 namespace {
@@ -320,6 +321,10 @@ void loadConfiguration() {
   if (integrationMode == "insteon_hub") integrationConfigured = (insteonHubIP != "" && insteonHubPort != "" && insteonHubUser != "" && insteonHubPass != "" && insteonHubAddr != "");
   if (integrationMode == "ha")         integrationConfigured = (haIP != "" && haToken != "" && haEntityId != "");
   if (integrationMode == "homekit")    integrationConfigured = true;
+
+  // Cache the active mode for the core-0 worker (must run on core 1, before the
+  // worker is started in presenceInit).
+  refreshIntegrationCache();
 
   if (debugLevel > 0) {
     Serial.println(F("Configuration loaded:"));

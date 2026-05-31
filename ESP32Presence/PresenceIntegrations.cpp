@@ -2,6 +2,7 @@
 #include "PresenceCore.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_task_wdt.h>
 
 #ifdef ENABLE_HOMEKIT
 bool triggerHomeKitTestEvent(const String& signalType, bool active);
@@ -23,6 +24,9 @@ bool isValidInsteonHexAddress(const String& hex) {
 }
 
 TaskHandle_t gIntegrationWorkerHandle = nullptr;
+// Set by stopIntegrationWorker() (core 1) to ask the worker (core 0) to exit at
+// the top of its loop — a safe point where it is not reading shared Strings.
+volatile bool gWorkerExitRequested = false;
 
 volatile bool gInsteonDesiredOn = false;
 volatile bool gInsteonCommandQueued = false;
@@ -63,6 +67,13 @@ bool clearInsteonHubBuffer() {
 
 void integrationWorkerTask(void*) {
   for (;;) {
+    // Self-delete at a safe point when asked to stop (e.g. before a config
+    // rewrite mutates the shared connection Strings this task reads).
+    if (gWorkerExitRequested) {
+      gIntegrationWorkerHandle = nullptr;
+      vTaskDelete(NULL);
+    }
+
     if (configMode) {
       gInsteonCommandQueued = false;
       gInsteonNextAllowedAttemptMs = 0;
@@ -70,7 +81,7 @@ void integrationWorkerTask(void*) {
       continue;
     }
 
-    if (integrationMode == "insteon_hub" && integrationConfigured && gInsteonCommandQueued && !gInsteonCommandInFlight) {
+    if (gActiveIntegration == ACT_INSTEON_HUB && gInsteonCommandQueued && !gInsteonCommandInFlight) {
       unsigned long now = millis();
       if (timeReached(now, gInsteonNextAllowedAttemptMs)) {
         bool desired = gInsteonDesiredOn;
@@ -92,8 +103,7 @@ void integrationWorkerTask(void*) {
       }
     }
 
-    if (integrationMode == "ha" && haMode == "light_control" && integrationConfigured &&
-        gHACommandQueued && !gHACommandInFlight) {
+    if (gActiveIntegration == ACT_HA_LIGHT && gHACommandQueued && !gHACommandInFlight) {
       unsigned long now = millis();
       if (timeReached(now, gHANextAllowedAttemptMs)) {
         bool desired = gHADesiredOn;
@@ -444,8 +454,34 @@ void updateHASensorEntity() {
   }
 }
 
+/*
+ * refreshIntegrationCache - Recompute gActiveIntegration from the config
+ * Strings. Must be called only on core 1 (boot config load, or a config save),
+ * never from the worker. Folds in integrationConfigured so the worker can act
+ * on a single atomic int without touching any String.
+ */
+void refreshIntegrationCache() {
+  int kind = ACT_NONE;
+  if (integrationConfigured) {
+    if (integrationMode == "insteon_hub") {
+      kind = ACT_INSTEON_HUB;
+    } else if (integrationMode == "ha" && haMode == "light_control") {
+      kind = ACT_HA_LIGHT;
+    }
+  }
+  gActiveIntegration = kind;
+}
+
 void initIntegrationWorker() {
   if (gIntegrationWorkerHandle != nullptr) return;
+  // Only the Insteon Hub and HA light_control modes need a background HTTP
+  // worker. In every other mode (none/isy/homekit/ha-sensor) we never spawn
+  // it, so there is no second core touching shared state at all.
+  if (gActiveIntegration == ACT_NONE) {
+    serialPrintln(F("Integration worker not needed for current mode"));
+    return;
+  }
+  gWorkerExitRequested = false;
   BaseType_t ok = xTaskCreatePinnedToCore(
     integrationWorkerTask,
     "integrationWorker",
@@ -460,6 +496,30 @@ void initIntegrationWorker() {
   } else {
     serialPrintln(F("Integration worker task failed to start"));
   }
+}
+
+/*
+ * stopIntegrationWorker - Cleanly stop the core-0 worker before mutating the
+ * shared config Strings it reads. Asks the worker to self-delete at the top of
+ * its loop (a point where it holds no String pointers) and waits for it to
+ * acknowledge, so no use-after-free can occur during the rewrite.
+ */
+void stopIntegrationWorker() {
+  if (gIntegrationWorkerHandle == nullptr) return;
+  gWorkerExitRequested = true;
+  // Wait up to ~6 s for the worker to reach a safe point and self-delete. A
+  // worker mid-HTTP request finishes (or times out) first, then exits before
+  // its next command — it is not reading config Strings while blocked on I/O.
+  for (int i = 0; i < 600 && gIntegrationWorkerHandle != nullptr; i++) {
+    esp_task_wdt_reset();  // we run on the WDT-subscribed loop task
+    delay(10);
+  }
+  if (gIntegrationWorkerHandle != nullptr) {
+    // Fallback: force-delete if it never acknowledged.
+    vTaskDelete(gIntegrationWorkerHandle);
+    gIntegrationWorkerHandle = nullptr;
+  }
+  gWorkerExitRequested = false;
 }
 
 

@@ -1,13 +1,15 @@
 #pragma once
 
 // Firmware metadata
-#define FIRMWARE_VERSION "2.7.1"
+#define FIRMWARE_VERSION "2.7.1-nohk"  // DIAGNOSTIC build: HomeKit disabled to isolate crash
 
 // Compile-time feature flags
 // Uncomment to enable native HomeKit support.
 // Requires the HomeSpan library — install via Arduino IDE:
 //   Tools → Manage Libraries → search "HomeSpan" → install
-#define ENABLE_HOMEKIT
+// DIAGNOSTIC: temporarily disabled to isolate whether HomeSpan/HAP is the crash
+// source. Runs WiFi + sensor + LED with no HAP server. Re-enable to restore HomeKit.
+// #define ENABLE_HOMEKIT
 
 // Runtime web UI + OTA services in normal operation.
 // 0 = disabled by default for lowest control-loop latency

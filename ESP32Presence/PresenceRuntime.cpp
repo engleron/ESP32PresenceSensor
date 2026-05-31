@@ -848,9 +848,32 @@ void presenceInit() {
   Serial.println(F("================================================\n"));
 }
 
+/*
+ * logHeapStats - Periodically report free-heap diagnostics.
+ *
+ * Prints current free heap, the largest allocatable block (a fragmentation
+ * indicator), and the minimum free heap ever seen since boot. A steadily
+ * falling minimum points to a leak; a free heap that stays high while the
+ * largest block shrinks points to fragmentation. Either can precede the
+ * heap-corruption / out-of-memory crashes seen under HomeKit load.
+ */
+void logHeapStats() {
+#if HEAP_LOG_INTERVAL_MS > 0
+  static unsigned long lastHeapLog = 0;
+  unsigned long now = millis();
+  if (now - lastHeapLog < HEAP_LOG_INTERVAL_MS) return;
+  lastHeapLog = now;
+  serialPrintln("Heap: free=" + String(ESP.getFreeHeap()) +
+                " largestBlock=" + String(ESP.getMaxAllocHeap()) +
+                " minFree=" + String(ESP.getMinFreeHeap()));
+#endif
+}
+
 void presenceTick() {
   // Reset watchdog
   esp_task_wdt_reset();
+
+  logHeapStats();
 
   if (configMode) {
     dnsServer.processNextRequest();

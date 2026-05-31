@@ -646,7 +646,10 @@ void initHomeKit() {
   if (code.length() != 8) code = "11122333";
   String fmt = code.substring(0, 3) + "-" + code.substring(3, 5) + "-" + code.substring(5);
 
-  homeSpan.setLogLevel(1);                          // level 1: show mDNS TXT records + HAP events
+  homeSpan.setLogLevel(0);                          // level 0: quiet. Level 1 floods the serial
+                                                    // port with a blocking "In Get Characteristics"
+                                                    // print on every HAP poll, starving the loop
+                                                    // task during the controller's high-rate polling.
   homeSpan.setPortNum(1234);                        // HAP port — avoids conflict with WebServer on 80
   homeSpan.setPairingCode(code.c_str());            // raw 8 digits — HomeSpan rejects hyphens
   homeSpan.begin(Category::Sensors, "Presence Sensor", "presence");  // mDNS hostname: presence.local

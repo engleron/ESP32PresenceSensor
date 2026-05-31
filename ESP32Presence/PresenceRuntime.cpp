@@ -714,6 +714,12 @@ void connectToWiFi() {
   serialPrintln(wifiSSID);
 
   WiFi.mode(WIFI_STA);
+  // Disable modem-sleep power save. The default WIFI_PS_MIN_MODEM makes socket
+  // calls sluggish and provokes extra disconnects/roaming, which can stall
+  // homeSpan.poll() in the loop past the 8s task watchdog (TG0WDT_SYS_RST).
+  // Keeping the radio awake trades a little power for a stable always-on HAP link.
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
 
   const unsigned long connectTimeoutMs = 30000;

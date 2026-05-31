@@ -81,6 +81,7 @@ void pulseRedWarning(unsigned long remainingMs) {
 void updateLED() {
   static int prevState = -1;
   int state = 0;
+  unsigned long remainingMs = 0;
 
   if (sensorError) {
     blinkRedBlue();
@@ -89,7 +90,6 @@ void updateLED() {
     setRGB(0, 255, 0);  // Green: presence
     state = 1;
   } else {
-    unsigned long remainingMs = 0;
     bool warningState = false;
     if (lightOn && noDetectionTimeout > 0) {
       unsigned long timeoutMs = (unsigned long)noDetectionTimeout * 1000UL;
@@ -101,28 +101,44 @@ void updateLED() {
     }
 
     if (!lightOn) {
-      setRGB(255, 0, 0);  // Red: no presence, light is off
+      setRGB(255, 0, 0);  // Red: no presence, hold timer elapsed
       state = 3;
     } else if (warningState) {
-      pulseRedWarning(remainingMs);  // Red pulse: no presence warning (light-off imminent)
+      pulseRedWarning(remainingMs);  // Red pulse: hold timer about to elapse
       state = 4;
     } else {
-      setRGB(255, 255, 0);  // Yellow: no presence, light still on
+      setRGB(255, 255, 0);  // Yellow: no presence, hold timer counting down
       state = 2;
     }
   }
 
   if (state != prevState && state != 5) {
     prevState = state;
-    const char* msgs[] = {
-      "",
-      "GREEN (presence)",
-      "YELLOW (no presence)",
-      "RED (no presence, light off)",
-      "RED PULSE (no presence warning)"
-    };
+    // In HomeKit mode the device is a sensor (no light), so the LED reflects
+    // the occupancy-hold timer rather than a light. Use matching labels.
+    bool hk = (integrationMode == "homekit");
+    unsigned long remainingSecs = (remainingMs + 999UL) / 1000UL;
+    String msg;
+    switch (state) {
+      case 1:
+        msg = hk ? "GREEN (occupancy detected)" : "GREEN (presence)";
+        break;
+      case 2:
+        msg = hk ? "YELLOW (no presence, occupancy held, clearing in "
+                     + String(noDetectionTimeout) + "s)"
+                 : "YELLOW (no presence, light on, off in "
+                     + String(noDetectionTimeout) + "s)";
+        break;
+      case 3:
+        msg = hk ? "RED (occupancy cleared)" : "RED (no presence, light off)";
+        break;
+      case 4:
+        msg = hk ? "RED PULSE (occupancy clearing in " + String(remainingSecs) + "s)"
+                 : "RED PULSE (light off in " + String(remainingSecs) + "s)";
+        break;
+    }
     if (state >= 1 && state <= 4) {
-      serialPrintln("LED: " + String(msgs[state]));
+      serialPrintln("LED: " + msg);
     }
   }
 }

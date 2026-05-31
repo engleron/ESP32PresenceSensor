@@ -799,6 +799,12 @@ void updateHomeKitState() {
       serialPrintln(F("HomeKit: occupancy CLEAR"));
     }
   }
+
+  // Mirror the occupancy-hold state onto lightOn so the LED state machine
+  // (driven by lightOn) reflects the HomeKit occupancy timer instead of an
+  // unused light: GREEN while occupied, YELLOW/RED-PULSE during the clear
+  // countdown, solid RED once occupancy clears.
+  lightOn = hkOccupancyActive;
 }
 
 

@@ -930,6 +930,19 @@ void presenceTick() {
   delay(MAIN_LOOP_DELAY_MS);
 }
 
+// Enlarge the Arduino loop task stack (default 8 KB). homeSpan.poll() runs on
+// this task and performs HAP TLS handshakes on every controller (re)connect —
+// stack-hungry, and the device roams across multiple WiFi APs, so handshakes
+// happen often. A too-small loop stack can overflow into neighbouring memory
+// during a handshake and corrupt the heap, surfacing later as an idle-task
+// stack-canary panic. 16 KB gives mbedTLS comfortable headroom.
+//
+// Defined here (a .cpp), not in the .ino, to avoid Arduino's prototype
+// injection; it overrides the core's weak getArduinoLoopTaskStackSize().
+size_t getArduinoLoopTaskStackSize(void) {
+  return 16 * 1024;
+}
+
 void setup() {
   presenceInit();
 }

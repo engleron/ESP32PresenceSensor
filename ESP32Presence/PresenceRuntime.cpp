@@ -4,6 +4,7 @@
 #include "PresenceWeb.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_heap_caps.h>
 
 namespace {
 bool runModeServicesActive = false;
@@ -17,6 +18,7 @@ bool startRunModeServices(bool asServiceMode);
 void toggleServiceMode();
 unsigned idleStackHeadroom(int core);
 void logIdleStackLow();
+void checkHeapIntegrity();
 
 
 /*
@@ -931,12 +933,45 @@ void logIdleStackLow() {
   }
 }
 
+/*
+ * checkHeapIntegrity - Periodically scan all heap regions for corruption.
+ *
+ * The crashes are not stack exhaustion (idle high-water is flat) but a stray
+ * write that trips the idle stack-guard watchpoint, which then double-faults
+ * and erases its own backtrace. FreeRTOS task stacks are themselves heap
+ * allocations, so a write past a task stack corrupts an adjacent heap block's
+ * canary. heap_caps_check_integrity_all(true) validates every block's head/tail
+ * canary (default builds use light heap poisoning) and prints the offending
+ * block's address/details the moment corruption appears - catching it closer to
+ * the source, and *before* the fatal access, instead of after a wild crash.
+ */
+void checkHeapIntegrity() {
+#if HEAP_INTEGRITY_CHECK_MS > 0
+  static unsigned long lastCheck = 0;
+  static bool reported = false;
+  unsigned long now = millis();
+  if (now - lastCheck < HEAP_INTEGRITY_CHECK_MS) return;
+  lastCheck = now;
+
+  // print_errors=true dumps the corrupted block(s) to serial via the heap code.
+  bool ok = heap_caps_check_integrity_all(true);
+  if (!ok && !reported) {
+    reported = true;  // the dump above is the prize; don't spam every interval
+    serialPrintln(F("*** HEAP CORRUPTION DETECTED (see block dump above) ***"));
+    serialPrintln("At t=" + String(now / 1000.0, 3) + "s  free=" +
+                  String(ESP.getFreeHeap()) + " minFree=" +
+                  String(ESP.getMinFreeHeap()));
+  }
+#endif
+}
+
 void presenceTick() {
   // Reset watchdog
   esp_task_wdt_reset();
 
   logHeapStats();
   logIdleStackLow();
+  checkHeapIntegrity();
 
   if (configMode) {
     dnsServer.processNextRequest();

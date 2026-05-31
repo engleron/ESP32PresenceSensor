@@ -9,4 +9,10 @@
 // happen often. A too-small loop stack can overflow into neighbouring memory
 // during a handshake and corrupt the heap, surfacing later as an idle-task
 // stack-canary panic. 16 KB gives mbedTLS comfortable headroom.
-SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+//
+// We override the core's weak getArduinoLoopTaskStackSize() directly rather
+// than the SET_LOOP_TASK_STACK_SIZE() macro, which isn't reliably defined
+// across arduino-esp32 versions.
+size_t getArduinoLoopTaskStackSize(void) {
+  return 16 * 1024;
+}

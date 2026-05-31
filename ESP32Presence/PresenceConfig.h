@@ -36,6 +36,9 @@
 #define STATUS_UPDATE_INTERVAL  2000
 #define WDT_TIMEOUT_SECONDS     8
 #define HEAP_LOG_INTERVAL_MS    30000   // periodic free-heap diagnostic (0 disables)
+#define HEAP_INTEGRITY_CHECK_MS 1000    // periodic heap-integrity scan to trap stray
+                                        // writes / corruption at the offending block
+                                        // (0 disables). Diagnostic; mild CPU cost.
 
 // HomeKit sensor timing defaults
 #define HK_MOTION_CLEAR_SECS_DEFAULT      20   // seconds before motion clears after last movement

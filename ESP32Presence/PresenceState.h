@@ -49,6 +49,18 @@ extern bool   isyConfigured;
 extern String integrationMode;
 extern bool   integrationConfigured;
 
+// Cached integration mode for the core-0 background worker. The worker must
+// never read the heap-backed integrationMode/haMode Strings cross-core (a
+// concurrent reassignment on core 1 frees the backing buffer → use-after-free
+// → heap corruption), so it switches on this plain enum instead. Written only
+// from core 1 via refreshIntegrationCache(); read by the worker on core 0.
+enum ActiveIntegration {
+  ACT_NONE = 0,      // no background worker needed (none/isy/homekit/ha-sensor)
+  ACT_INSTEON_HUB,   // worker drives Insteon Hub HTTP commands
+  ACT_HA_LIGHT       // worker drives Home Assistant light_control HTTP commands
+};
+extern volatile int gActiveIntegration;
+
 // Insteon Hub settings
 extern String insteonHubIP;
 extern String insteonHubPort;

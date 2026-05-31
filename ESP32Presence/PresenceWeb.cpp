@@ -659,6 +659,10 @@ void handleSetupSave() {
     }
   }
 
+  // Stop the core-0 worker before mutating shared config Strings (prevents a
+  // cross-core use-after-free). This handler always reboots, so no respawn.
+  stopIntegrationWorker();
+
   // Save form values
   wifiSSID     = server.arg("wifi_ssid");
   wifiPassword = server.arg("wifi_pass");
@@ -946,6 +950,10 @@ void handleConfig() {
     // Save posted settings
     String action = server.arg("action");
 
+    // Stop the core-0 worker before mutating shared config Strings to prevent a
+    // cross-core use-after-free. Respawned below on the no-reboot save path.
+    stopIntegrationWorker();
+
     wifiSSID    = server.arg("wifi_ssid");
     String wifiPassArg = server.arg("wifi_pass");
     if (wifiPassArg.length() > 0) wifiPassword = wifiPassArg;
@@ -1064,6 +1072,8 @@ void handleConfig() {
     }
 
     saveConfiguration();
+    // Recompute the worker's cached mode from the freshly saved Strings.
+    refreshIntegrationCache();
 
     // Push sensor tuning to the radar live (no reboot needed). When tuning is
     // disabled this is a no-op and the sensor keeps its current settings.
@@ -1079,6 +1089,9 @@ void handleConfig() {
       ESP.restart();
       return;
     }
+
+    // No-reboot save: respawn the worker for the (possibly changed) mode.
+    initIntegrationWorker();
 
     sendPageStart("Settings Saved");
     sendNavBar();

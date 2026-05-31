@@ -10,7 +10,9 @@ bool sendInsteonHubCommand(bool on);
 bool sendHACommand(bool on);
 bool sendHASensorState(const String& state);
 void updateHASensorEntity();
+void refreshIntegrationCache();
 void initIntegrationWorker();
+void stopIntegrationWorker();
 void controlLight();
 bool triggerIntegrationTestEvent(const String& signalType, bool active);
 

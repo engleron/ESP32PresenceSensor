@@ -28,6 +28,7 @@ bool   isyConfigured = false;
 // Integration selector
 String integrationMode       = "none";
 bool   integrationConfigured = false;
+volatile int gActiveIntegration = ACT_NONE;
 
 // Insteon Hub settings
 String insteonHubIP   = "";

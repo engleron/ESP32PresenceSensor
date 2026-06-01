@@ -112,8 +112,21 @@ static bool isNoPresenceWarningWindow() {
  * @return HTML string of <option> elements for a <select> element
  */
 void startWiFiScanAsync() {
+  // Rate-limit scan restarts. The captive portal auto-refreshes every ~4s and
+  // each connected phone polls it, so without this guard scans get re-triggered
+  // back-to-back. Thrashing the radio in WIFI_AP_STA mode can block loopTask
+  // inside handleClient() long enough to trip the 8s task watchdog (observed in
+  // setup mode). One scan per SCAN_MIN_RESTART_MS is plenty for a setup page.
+  static unsigned long lastScanStart = 0;
+  const unsigned long SCAN_MIN_RESTART_MS = 8000;
+
   int state = WiFi.scanComplete();
   if (state == WIFI_SCAN_RUNNING) return;
+
+  unsigned long now = millis();
+  if (lastScanStart != 0 && (now - lastScanStart) < SCAN_MIN_RESTART_MS) return;
+  lastScanStart = now;
+
   WiFi.scanDelete();
   WiFi.scanNetworks(true, true);
 }

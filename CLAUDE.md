@@ -16,12 +16,14 @@ This is an **Arduino IDE project** — there is no CLI build system (no `make`, 
 
 **Required libraries (install via Library Manager):**
 - Adafruit NeoPixel
-- HomeSpan — search "HomeSpan" in Library Manager (required; `#define ENABLE_HOMEKIT` is enabled by default)
+- HomeSpan **2.1.8 or newer** — search "HomeSpan" in Library Manager (required; `#define ENABLE_HOMEKIT` is enabled by default)
 
-**Required board package:** esp32 by Espressif Systems (add URL to Boards Manager):
+**Required board package:** esp32 by Espressif Systems, **version 3.3.0 or newer** (add URL to Boards Manager):
 ```
 https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 ```
+
+> **Minimum versions matter.** HomeSpan 2.1.8 hard-requires arduino-esp32 ≥ 3.3.0 (it `#error`s otherwise). Older combinations (e.g. HomeSpan 2.1.2 on core 3.2.1 / IDF 5.4.2) crash in paired HomeKit operation with a FreeRTOS idle-task stack-canary panic (`Stack canary watchpoint triggered (IDLE0/IDLE1)`) — a TLS-teardown path overran the ~1.5 KB idle-task stack during controller (re)connections. Updating to HomeSpan 2.1.8 + core 3.3.x (IDF 5.5.x, MbedTLS 3.6.5) resolves it. Known-good as of this writing: HomeSpan 2.1.8, arduino-esp32 3.3.8, IDF 5.5.4.
 
 **Upload settings:** Speed 921600, Flash 4MB, Partition: **Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)**
 

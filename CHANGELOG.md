@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.7.7] - 2026-06-01
+
+Resolves the long-standing paired-HomeKit crash by requiring up-to-date toolchain
+versions, and removes the diagnostic instrumentation used to track it down.
+
+### Fixed
+
+- **Paired-mode crash (`Stack canary watchpoint triggered (IDLE0/IDLE1)`)** — under paired HomeKit operation the device rebooted within minutes via a FreeRTOS idle-task stack-canary panic. Root cause was a TLS-teardown path in the old HomeSpan/IDF stack overrunning the ~1.5 KB idle-task stack during controller (re)connections. Heap, application buffers, loop-task stack, and power were each ruled out by instrumentation. Updating to **HomeSpan 2.1.8 + arduino-esp32 3.3.8 (IDF 5.5.4, MbedTLS 3.6.5)** resolves it; verified clean across paired operation and multiple WiFi reconnects.
+- **Setup-mode task-watchdog reboot** — the captive portal's periodic refresh re-triggered WiFi scans back-to-back, blocking `loopTask` long enough to trip the 8 s task watchdog in `WIFI_AP_STA` mode. `startWiFiScanAsync()` now rate-limits scan restarts to at most once per 8 s.
+
+### Changed
+
+- **Minimum toolchain versions documented and enforced** — HomeSpan **≥ 2.1.8** and esp32 board package **≥ 3.3.0** are now required (HomeSpan hard-`#error`s on older cores). Documented in `README.md` and `CLAUDE.md` with the known-good set.
+- **Loop-task stack** override (`getArduinoLoopTaskStackSize()` → 16 KB) retained as headroom for HAP TLS handshakes.
+- **Removed hunt-only instrumentation** — the per-second `heap_caps_check_integrity_all()` scan and its `HEAP_INTEGRITY_CHECK_MS` knob were dropped (they existed solely to trap the corruption hypothesis, since disproven). Lightweight periodic heap and idle-stack high-water logging are kept.
+- **Firmware version bumped to `2.7.7`** in `PresenceConfig.h`.
+
+### Component Version Notes
+
+- **Firmware:** `2.7.7`
+- **Known-good toolchain:** HomeSpan `2.1.8`, arduino-esp32 `3.3.8`, ESP-IDF `5.5.4`, MbedTLS `3.6.5`
+
+---
+
 ## [2.5.1] - 2026-03-13
 
 Patch release fixing an Arduino linker regression introduced in `2.5.0`.

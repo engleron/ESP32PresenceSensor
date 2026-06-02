@@ -2,8 +2,6 @@
 #include "PresenceCore.h"
 #include "PresenceIntegrations.h"
 #include "PresenceWeb.h"
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 
 namespace {
 bool runModeServicesActive = false;
@@ -15,8 +13,6 @@ bool serviceModeActive = false;
 void stopRunModeServices();
 bool startRunModeServices(bool asServiceMode);
 void toggleServiceMode();
-unsigned idleStackHeadroom(int core);
-void logIdleStackLow();
 
 
 /*
@@ -874,69 +870,9 @@ void presenceInit() {
   Serial.println(F("================================================\n"));
 }
 
-/*
- * logHeapStats - Periodically report free-heap diagnostics.
- *
- * Prints current free heap, the largest allocatable block (a fragmentation
- * indicator), and the minimum free heap ever seen since boot. A steadily
- * falling minimum points to a leak; a free heap that stays high while the
- * largest block shrinks points to fragmentation. Either can precede the
- * heap-corruption / out-of-memory crashes seen under HomeKit load.
- */
-void logHeapStats() {
-#if HEAP_LOG_INTERVAL_MS > 0
-  static unsigned long lastHeapLog = 0;
-  unsigned long now = millis();
-  if (now - lastHeapLog < HEAP_LOG_INTERVAL_MS) return;
-  lastHeapLog = now;
-  serialPrintln("Heap: free=" + String(ESP.getFreeHeap()) +
-                " largestBlock=" + String(ESP.getMaxAllocHeap()) +
-                " minFree=" + String(ESP.getMinFreeHeap()) +
-                " idleStackMin[c0/c1]=" + String(idleStackHeadroom(0)) +
-                "/" + String(idleStackHeadroom(1)));
-#endif
-}
-
-/*
- * idleStackHeadroom - Minimum free bytes ever seen on the given core's idle
- * task stack since boot (uxTaskGetStackHighWaterMark is a cumulative low-water
- * mark, so coarse sampling never misses the deepest excursion). Returns 0 if
- * the idle handle isn't available.
- */
-unsigned idleStackHeadroom(int core) {
-  TaskHandle_t idle = xTaskGetIdleTaskHandleForCore(core);
-  if (idle == nullptr) return 0;
-  return (unsigned)uxTaskGetStackHighWaterMark(idle);
-}
-
-/*
- * logIdleStackLow - Print a timestamped line the instant either idle task
- * reaches a new low-water mark. Time-localizing the drop lets us correlate it
- * with the surrounding serial events (occupancy clear, WiFi reconnect, Home
- * Hub controller reconnect) and so identify what runs stack-hungry code in
- * idle context. The crashes are idle-task stack overflows; the default idle
- * stack is ~1.5 KB and can't be enlarged from an Arduino sketch, so this is a
- * pure diagnostic to find the offending code path.
- */
-void logIdleStackLow() {
-  static unsigned lowest[2] = {0xFFFFFFFFu, 0xFFFFFFFFu};
-  for (int core = 0; core < 2; core++) {
-    unsigned headroom = idleStackHeadroom(core);
-    if (headroom == 0) continue;  // handle not ready
-    if (headroom < lowest[core]) {
-      lowest[core] = headroom;
-      serialPrintln("IDLE" + String(core) + " stack new low: " +
-                    String(headroom) + " bytes free");
-    }
-  }
-}
-
 void presenceTick() {
   // Reset watchdog
   esp_task_wdt_reset();
-
-  logHeapStats();
-  logIdleStackLow();
 
   if (configMode) {
     dnsServer.processNextRequest();
@@ -969,19 +905,6 @@ void presenceTick() {
 #endif
 
   delay(MAIN_LOOP_DELAY_MS);
-}
-
-// Enlarge the Arduino loop task stack (default 8 KB). homeSpan.poll() runs on
-// this task and performs HAP TLS handshakes on every controller (re)connect —
-// stack-hungry, and the device roams across multiple WiFi APs, so handshakes
-// happen often. A too-small loop stack can overflow into neighbouring memory
-// during a handshake and corrupt the heap, surfacing later as an idle-task
-// stack-canary panic. 16 KB gives mbedTLS comfortable headroom.
-//
-// Defined here (a .cpp), not in the .ino, to avoid Arduino's prototype
-// injection; it overrides the core's weak getArduinoLoopTaskStackSize().
-size_t getArduinoLoopTaskStackSize(void) {
-  return 16 * 1024;
 }
 
 void setup() {

@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.7.7] - 2026-06-01
+## [2.7.8] - 2026-06-01
+
+Cleanup release. Removes the temporary instrumentation and speculative workaround
+used while diagnosing the paired-HomeKit crash (root-caused and fixed in `2.7.7`
+via the HomeSpan 2.1.8 / arduino-esp32 3.3.x toolchain requirement). No functional
+behavior change; verified stable across an extended paired run.
+
+### Removed
+
+- **Idle-task stack instrumentation** — `idleStackHeadroom()`, `logIdleStackLow()`, and the `idleStackMin[c0/c1]` field on the heap log line, plus the now-unneeded `<freertos/FreeRTOS.h>`/`<freertos/task.h>` includes.
+- **Periodic heap-stats log** — `logHeapStats()` and the `HEAP_LOG_INTERVAL_MS` knob (serial output is now quiet in normal operation).
+- **16 KB loop-task stack override** — `getArduinoLoopTaskStackSize()` removed; the loop task returns to the core default. It was a speculative workaround; the real fix was the toolchain update, and the loop-task stack was never the failing stack.
+
+### Changed
+
+- **Firmware version bumped to `2.7.8`** in `PresenceConfig.h`.
+
+---
 
 Resolves the long-standing paired-HomeKit crash by requiring up-to-date toolchain
 versions, and removes the diagnostic instrumentation used to track it down.

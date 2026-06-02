@@ -1,7 +1,7 @@
 #pragma once
 
 // Firmware metadata
-#define FIRMWARE_VERSION "2.7.7"
+#define FIRMWARE_VERSION "2.7.8"
 
 // Compile-time feature flags
 // Uncomment to enable native HomeKit support.
@@ -35,7 +35,6 @@
 #define MAX_LOGIN_ATTEMPTS      5
 #define STATUS_UPDATE_INTERVAL  2000
 #define WDT_TIMEOUT_SECONDS     8
-#define HEAP_LOG_INTERVAL_MS    30000   // periodic free-heap diagnostic (0 disables)
 
 // HomeKit sensor timing defaults
 #define HK_MOTION_CLEAR_SECS_DEFAULT      20   // seconds before motion clears after last movement

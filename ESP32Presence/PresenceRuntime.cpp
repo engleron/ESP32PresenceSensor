@@ -714,6 +714,12 @@ void connectToWiFi() {
   serialPrintln(wifiSSID);
 
   WiFi.mode(WIFI_STA);
+  // Disable modem-sleep power save. The default WIFI_PS_MIN_MODEM makes socket
+  // calls sluggish and provokes extra disconnects/roaming, which can stall
+  // homeSpan.poll() in the loop past the 8s task watchdog (TG0WDT_SYS_RST).
+  // Keeping the radio awake trades a little power for a stable always-on HAP link.
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
 
   const unsigned long connectTimeoutMs = 30000;
@@ -864,32 +870,9 @@ void presenceInit() {
   Serial.println(F("================================================\n"));
 }
 
-/*
- * logHeapStats - Periodically report free-heap diagnostics.
- *
- * Prints current free heap, the largest allocatable block (a fragmentation
- * indicator), and the minimum free heap ever seen since boot. A steadily
- * falling minimum points to a leak; a free heap that stays high while the
- * largest block shrinks points to fragmentation. Either can precede the
- * heap-corruption / out-of-memory crashes seen under HomeKit load.
- */
-void logHeapStats() {
-#if HEAP_LOG_INTERVAL_MS > 0
-  static unsigned long lastHeapLog = 0;
-  unsigned long now = millis();
-  if (now - lastHeapLog < HEAP_LOG_INTERVAL_MS) return;
-  lastHeapLog = now;
-  serialPrintln("Heap: free=" + String(ESP.getFreeHeap()) +
-                " largestBlock=" + String(ESP.getMaxAllocHeap()) +
-                " minFree=" + String(ESP.getMinFreeHeap()));
-#endif
-}
-
 void presenceTick() {
   // Reset watchdog
   esp_task_wdt_reset();
-
-  logHeapStats();
 
   if (configMode) {
     dnsServer.processNextRequest();

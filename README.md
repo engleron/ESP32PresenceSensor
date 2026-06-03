@@ -111,6 +111,9 @@ Install via Arduino IDE → Sketch → Include Library → Manage Libraries:
 | Library | Version | Purpose |
 |---------|---------|---------|
 | **Adafruit NeoPixel** | 1.11.0+ | RGB LED control |
+| **HomeSpan** | **2.1.8+** | Native HomeKit support (`ENABLE_HOMEKIT`, on by default) |
+
+> **HomeSpan 2.1.8+ requires ESP32 board package 3.3.0 or newer** (it will refuse to compile otherwise). Older combinations such as HomeSpan 2.1.2 on core 3.2.1 crash during paired HomeKit operation with a FreeRTOS idle-task stack-canary panic. Use the known-good set below.
 
 ### ESP32 Board Package
 
@@ -120,7 +123,7 @@ Install via Arduino IDE → Sketch → Include Library → Manage Libraries:
    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
    ```
 3. Go to Tools → Board → Boards Manager
-4. Search for "esp32" and install **esp32 by Espressif Systems** (version 3.3.7 or later recommended)
+4. Search for "esp32" and install **esp32 by Espressif Systems** — **version 3.3.0 or newer is required** (3.3.8 known-good; required by HomeSpan 2.1.8+)
 
 ---
 
